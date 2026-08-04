@@ -1,0 +1,21 @@
+{
+  "name": "claude-speak",
+  "description": "Reads Claude Code's replies aloud with a local neural voice (Kokoro). No cloud, no API key. Session-aware across multiple terminals.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tihomir Manushev",
+    "url": "https://github.com/haraGADygyl"
+  },
+  "homepage": "https://github.com/haraGADygyl/claude-speak",
+  "repository": "https://github.com/haraGADygyl/claude-speak",
+  "license": "MIT",
+  "keywords": [
+    "tts",
+    "text-to-speech",
+    "accessibility",
+    "a11y",
+    "voice",
+    "kokoro",
+    "offline"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "claude-speak",
+  "owner": {
+    "name": "Tihomir Manushev",
+    "url": "https://github.com/haraGADygyl"
+  },
+  "plugins": [
+    {
+      "name": "claude-speak",
+      "source": "./",
+      "description": "Reads Claude Code's replies aloud with a local neural voice (Kokoro). No cloud, no API key."
+    }
+  ],
+  "description": "Local neural text-to-speech for Claude Code — replies read aloud, no cloud."
+}

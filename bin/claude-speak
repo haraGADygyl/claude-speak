@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# claude-speak — control Claude Code's spoken replies.
+#
+#   claude-speak install         download the neural voice model (one time)
+#   claude-speak                 show current settings
+#   claude-speak on | off        toggle reading replies aloud
+#   claude-speak stop            shut up right now
+#   claude-speak test            speak a sample line
+#   claude-speak voice af_bella  pick a voice
+#   claude-speak voices          list every voice
+#   claude-speak audition        hear the best English voices back to back
+#   claude-speak speed 1.2       0.5 = slow, 1.0 = normal, 1.5 = fast
+#   claude-speak max 4000        max characters read per reply
+#   claude-speak mode queue      several terminals: queue | interrupt | drop
+#   claude-speak queue           what is speaking and what is waiting
+#   claude-speak restart         restart the TTS daemon
+#   claude-speak log             tail the daemon log
+#
+# Stepping away from a terminal:
+#   claude-speak hold on         stash replies + desktop notification
+#   claude-speak pending         list what is waiting
+#   claude-speak play [project]  speak everything waiting, oldest first
+#   claude-speak clear           discard what is waiting
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS="$(cd "$HERE/../scripts" && pwd)"
+
+DATA="${CLAUDE_SPEAK_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-speak}"
+CFG="${CLAUDE_SPEAK_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-speak/config.json}"
+HELD="$DATA/held.jsonl"
+VENV_PY="$DATA/venv/bin/python"
+SAY=(python3 "$SCRIPTS/say.py")
+
+need_jq() {
+  command -v jq >/dev/null || { echo "claude-speak needs 'jq' installed" >&2; exit 1; }
+}
+
+ensure_cfg() {
+  [[ -f "$CFG" ]] && return
+  mkdir -p "$(dirname "$CFG")"
+  cat >"$CFG" <<'JSON'
+{
+  "enabled": true,
+  "engine": "auto",
+  "voice": "af_heart",
+  "speed": 1.0,
+  "maxChars": 2500,
+  "announceCode": true,
+  "shortenPaths": true,
+  "multiSession": "queue",
+  "holdReplies": false,
+  "notify": true
+}
+JSON
+}
+
+set_key() { need_jq; tmp=$(mktemp) && jq "$1" "$CFG" >"$tmp" && mv "$tmp" "$CFG"; }
+get()     { need_jq; jq -r "$1" "$CFG"; }
+
+kokoro_ready() {
+  [[ -x "$VENV_PY" && -f "$DATA/models/kokoro-v1.0.onnx" && -f "$DATA/models/voices-v1.0.bin" ]]
+}
+
+status() {
+  need_jq
+  jq '{enabled, engine, voice, speed, maxChars, multiSession, holdReplies, notify}' "$CFG"
+  if kokoro_ready; then
+    printf 'engine:  kokoro (neural, local)\n'
+  else
+    printf 'engine:  system fallback — run "claude-speak install" for the neural voice\n'
+  fi
+
+  local unit daemon
+  unit=$(systemctl --user is-active claude-speak.service 2>/dev/null)
+  if "${SAY[@]}" --status >/dev/null 2>&1; then
+    [[ "$unit" == "active" ]] && daemon="running (systemd)" || daemon="running (on demand)"
+  else
+    daemon="stopped — starts on the next reply"
+  fi
+  printf 'daemon:  %s\n' "$daemon"
+}
+
+ensure_cfg
+
+case "${1:-status}" in
+  install) exec bash "$SCRIPTS/install.sh" "${@:2}" ;;
+
+  on)   set_key '.enabled = true';  echo "claude-speak: on" ;;
+  off)  set_key '.enabled = false'; "${SAY[@]}" --stop 2>/dev/null; echo "claude-speak: off" ;;
+  stop) "${SAY[@]}" --stop 2>/dev/null; spd-say -C 2>/dev/null; pkill -x say 2>/dev/null
+        echo "silenced" ;;
+
+  voice)
+    v="${2:?usage: claude-speak voice af_bella}"
+    set_key ".voice = \"$v\""
+    "${SAY[@]}" --voice "$v" --speed "$(get .speed)" \
+      "This is ${v//_/ }. I will read your replies in this voice from now on."
+    ;;
+  speed)
+    set_key ".speed = ${2:?usage: claude-speak speed 1.2}"; echo "speed: $2"
+    "${SAY[@]}" --voice "$(get .voice)" --speed "$2" "This is the new speaking speed."
+    ;;
+  max) set_key ".maxChars = ${2:?usage: claude-speak max 4000}"; echo "maxChars: $2" ;;
+
+  mode)
+    m="${2:?usage: claude-speak mode queue|interrupt|drop}"
+    case "$m" in queue|interrupt|drop) ;; *) echo "mode must be queue, interrupt or drop"; exit 2 ;; esac
+    set_key ".multiSession = \"$m\""
+    case "$m" in
+      queue)     echo "mode: queue — other terminals wait their turn, announced by project" ;;
+      interrupt) echo "mode: interrupt — the newest reply cuts off whatever is speaking" ;;
+      drop)      echo "mode: drop — replies arriving mid-speech are skipped" ;;
+    esac
+    ;;
+
+  queue) "${SAY[@]}" --status ;;
+
+  hold)
+    case "${2:-}" in
+      on)  set_key '.holdReplies = true'
+           echo "hold: on — replies are stashed and announced; play them with: claude-speak play" ;;
+      off) set_key '.holdReplies = false'; echo "hold: off — replies are spoken as they finish" ;;
+      *)   printf 'hold is %s\n' "$([ "$(get .holdReplies)" = "true" ] && echo on || echo off)" ;;
+    esac
+    ;;
+
+  pending)
+    [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
+    need_jq; jq -r '"  \(.label): \(.text[0:70])…"' "$HELD"
+    printf '%s waiting — claude-speak play\n' "$(grep -c . "$HELD")"
+    ;;
+
+  play)
+    [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
+    need_jq
+    want="${2:-}"
+    # Oldest first, each announced by project, sent as ONE job so the daemon
+    # reads it straight through instead of each entry cancelling the last.
+    text=$(jq -rs --arg want "$want" '
+      map(select($want == "" or .label == $want))
+      | sort_by(.ts)
+      | map("From \(.label | gsub("[-_]"; " ")). \(.text)")
+      | join(" ")' "$HELD")
+    [[ -n "$text" ]] || { echo "nothing waiting for '$want'"; exit 0; }
+    if [[ -n "$want" ]]; then
+      tmp=$(mktemp) && jq -c --arg want "$want" 'select(.label != $want)' "$HELD" >"$tmp" && mv "$tmp" "$HELD"
+    else
+      : > "$HELD"
+    fi
+    "${SAY[@]}" --session held-playback --label "" \
+      --voice "$(get .voice)" --speed "$(get .speed)" "$text"
+    echo "playing ${want:-all} held replies"
+    ;;
+
+  clear) : > "$HELD"; echo "held replies discarded" ;;
+
+  voices)
+    kokoro_ready || { echo "run 'claude-speak install' first"; exit 1; }
+    "$VENV_PY" -c "
+import sys; sys.path.insert(0, '$SCRIPTS')
+import cspaths
+from kokoro_onnx import Kokoro
+print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>/dev/null
+    echo
+    echo "Prefixes: a=American b=British e=Spanish f=French h=Hindi i=Italian j=Japanese p=Portuguese z=Chinese"
+    echo "          f=female   m=male"
+    ;;
+
+  audition)
+    kokoro_ready || { echo "run 'claude-speak install' first"; exit 1; }
+    echo "Pick one afterwards with:  claude-speak voice <name>"
+    "${SAY[@]}" --stop 2>/dev/null
+    shift || true
+    "$VENV_PY" "$SCRIPTS/audition.py" "$@" 2>/dev/null
+    ;;
+
+  test)
+    "${SAY[@]}" --voice "$(get .voice)" --speed "$(get .speed)" \
+      "This is how Claude Code will sound when it reads a reply aloud. I fixed the import in parser dot pi, line forty two, and the tests pass."
+    ;;
+
+  restart)
+    if systemctl --user restart claude-speak.service 2>/dev/null; then
+      echo "daemon restarted"
+    else
+      pkill -f "$SCRIPTS/kokorod.py" 2>/dev/null
+      echo "daemon stopped; it will start again on the next reply"
+    fi
+    ;;
+  log)
+    tail -n 30 "$DATA/daemon.log" 2>/dev/null
+    journalctl --user -u claude-speak.service -n 20 --no-pager 2>/dev/null
+    ;;
+
+  status|"") status ;;
+  -h|--help|help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *)
+    echo "unknown option: $1"
+    echo "valid: install on off stop status speed <n> voice <name> max <n> mode <m>"
+    echo "       queue hold <on|off> pending play [project] clear voices audition restart log"
+    exit 2
+    ;;
+esac
