@@ -31,7 +31,8 @@ ding and a desktop notification; you hear it when *you* ask:
 claude-speak play
 ```
 
-That default exists because the alternative has a failure mode: a terminal
+That plays what *this* terminal produced; `play all` covers every project.
+The quiet default exists because the alternative has a failure mode: a terminal
 finishing mid-meeting and a voice announcing your code to a client. Two layers
 prevent it.
 
@@ -83,10 +84,15 @@ A new reply from the *same* session does interrupt it, because that one is stale
 announced rather than spoken, so nothing surprises you:
 
 ```
-claude-speak play          # everything, oldest first, announced by project
-claude-speak play api-server
-claude-speak pending       # just look at what's waiting
+claude-speak play              # this terminal's project only
+claude-speak play all          # every project, announced by name
+claude-speak play api-server   # one named project
+claude-speak pending           # what's waiting, * marks this terminal's
 ```
+
+`play` defaults to the project you're standing in, so a terminal only ever
+reads back its own work. The project name is announced only when you're
+hearing more than one.
 
 ---
 
@@ -107,7 +113,8 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `hold on` / `off` | Stash replies (default) or speak them as they finish |
 | `guard on` / `off` / `test` | Never speak while your microphone is in use |
 | `sound <file>` | Ding when a reply lands — `off`, `default`, or a path |
-| `pending` / `play` / `clear` | Manage stashed replies |
+| `play` / `play all` / `play <project>` | Read stashed replies — this terminal, everything, or one project |
+| `pending` / `clear` | List or discard stashed replies (same scoping) |
 | `mode queue` | Multi-terminal behaviour: `queue`, `interrupt`, `drop` |
 | `queue` | What's speaking and what's waiting |
 | `status` | Current settings |

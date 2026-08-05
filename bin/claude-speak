@@ -20,8 +20,10 @@
 # unless you ask. "claude-speak hold off" makes them read out automatically.
 #
 #   claude-speak pending         list what is waiting
-#   claude-speak play [project]  speak everything waiting, oldest first
-#   claude-speak clear           discard what is waiting
+#   claude-speak play            speak THIS terminal's replies, oldest first
+#   claude-speak play all        speak every project's replies
+#   claude-speak play <project>  speak one project's replies
+#   claude-speak clear [all|project]  discard what is waiting
 #   claude-speak hold off | on   auto-speak replies, or hold them
 #   claude-speak sound <file>    ding when a reply lands (off | default | path)
 #   claude-speak guard test      meeting guard: never speak while the mic is live
@@ -85,6 +87,29 @@ ensure_cfg() {
 
 set_key() { need_jq; tmp=$(mktemp) && jq "$1" "$CFG" >"$tmp" && mv "$tmp" "$CFG"; }
 get()     { need_jq; jq -r "$1" "$CFG"; }
+
+# Which project a play/clear/pending applies to. No argument means "the one
+# this terminal is in" — the hook labels replies by the session's directory
+# name, so the current directory identifies them. "all" means every project.
+scope() {
+  case "${1:-}" in
+    all) printf '' ;;
+    "")  basename "$PWD" ;;
+    *)   printf '%s' "$1" ;;
+  esac
+}
+
+waiting_by_project() {
+  jq -r '.label' "$HELD" | sort | uniq -c | awk '{printf "  %s (%s waiting)\n", $2, $1}'
+}
+
+drop_played() {  # drop_played <label|"" for all>
+  if [[ -n "$1" ]]; then
+    tmp=$(mktemp) && jq -c --arg w "$1" 'select(.label != $w)' "$HELD" >"$tmp" && mv "$tmp" "$HELD"
+  else
+    : > "$HELD"
+  fi
+}
 
 kokoro_ready() {
   [[ -x "$VENV_PY" && -f "$DATA/models/kokoro-v1.0.onnx" && -f "$DATA/models/voices-v1.0.bin" ]]
@@ -188,33 +213,61 @@ case "${1:-status}" in
 
   pending)
     [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
-    need_jq; jq -r '"  \(.label): \(.text[0:70])…"' "$HELD"
-    printf '%s waiting — claude-speak play\n' "$(grep -c . "$HELD")"
+    need_jq
+    here="$(basename "$PWD")"
+    jq -r --arg here "$here" \
+      '(if .label == $here then " *" else "  " end) + " \(.label): \(.text[0:66])…"' "$HELD"
+    total=$(grep -c . "$HELD")
+    mine=$(jq -rs --arg here "$here" 'map(select(.label == $here)) | length' "$HELD")
+    printf '\n%s waiting, %s from this terminal (*)\n' "$total" "$mine"
+    if [[ "$mine" == "0" ]]; then
+      echo "  claude-speak play all        hear everything"
+    elif [[ "$mine" != "$total" ]]; then
+      echo "  claude-speak play            hear this terminal's $mine"
+      echo "  claude-speak play all        hear all $total"
+    fi
     ;;
 
   play)
     [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
     need_jq
-    want="${2:-}"
-    # Oldest first, each announced by project, sent as ONE job so the daemon
-    # reads it straight through instead of each entry cancelling the last.
-    text=$(jq -rs --arg want "$want" '
-      map(select($want == "" or .label == $want))
-      | sort_by(.ts)
-      | map("From \(.label | gsub("[-_]"; " ")). \(.text)")
-      | join(" ")' "$HELD")
-    [[ -n "$text" ]] || { echo "nothing waiting for '$want'"; exit 0; }
-    if [[ -n "$want" ]]; then
-      tmp=$(mktemp) && jq -c --arg want "$want" 'select(.label != $want)' "$HELD" >"$tmp" && mv "$tmp" "$HELD"
-    else
-      : > "$HELD"
+    want="$(scope "${2:-}")"
+
+    n=$(jq -rs --arg w "$want" 'map(select($w == "" or .label == $w)) | length' "$HELD")
+    if [[ "$n" == "0" ]]; then
+      echo "nothing waiting for ${want}"
+      echo "waiting elsewhere:"; waiting_by_project
+      echo "hear everything with: claude-speak play all"
+      exit 0
     fi
+
+    # Name the project only when more than one is being read — announcing a
+    # single project back to you in its own terminal is just noise.
+    multi=$(jq -rs --arg w "$want" \
+      'map(select($w == "" or .label == $w)) | map(.label) | unique | length' "$HELD")
+    # Oldest first, sent as ONE job so the daemon reads it straight through
+    # instead of each entry cancelling the last.
+    text=$(jq -rs --arg w "$want" --argjson multi "$multi" '
+      map(select($w == "" or .label == $w))
+      | sort_by(.ts)
+      | map((if $multi > 1 then "From \(.label | gsub("[-_]"; " ")). " else "" end) + .text)
+      | join(" ")' "$HELD")
+
+    drop_played "$want"
     "${SAY[@]}" --session held-playback --label "" \
       --voice "$(get .voice)" --speed "$(get .speed)" "$text"
-    echo "playing ${want:-all} held replies"
+    printf 'playing %s reply(ies)%s\n' "$n" "${want:+ from $want}"
     ;;
 
-  clear) : > "$HELD"; echo "held replies discarded" ;;
+  clear)
+    [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
+    need_jq
+    want="$(scope "${2:-}")"
+    n=$(jq -rs --arg w "$want" 'map(select($w == "" or .label == $w)) | length' "$HELD")
+    [[ "$n" == "0" ]] && { echo "nothing waiting for ${want}"; exit 0; }
+    drop_played "$want"
+    printf 'discarded %s reply(ies)%s\n' "$n" "${want:+ from $want}"
+    ;;
 
   voices)
     kokoro_ready || { echo "run 'claude-speak install' first"; exit 1; }
@@ -260,7 +313,7 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     echo "unknown option: $1"
     echo "valid: install on off stop status speed <n> voice <name> max <n> mode <m>"
     echo "       queue hold <on|off> guard <on|off|test> sound <file|off|default>"
-    echo "       pending play [project] clear voices audition restart log"
+    echo "       pending play [all|project] clear [all|project] voices audition restart log"
     exit 2
     ;;
 esac
