@@ -37,8 +37,8 @@ finishing mid-meeting and a voice announcing your code to a client. Two layers
 prevent it.
 
 **Replies are held.** They're stashed with a notification rather than spoken.
-`claude-speak play` reads everything waiting, oldest first, each announced by
-project. Prefer it to just talk? `claude-speak hold off`.
+`claude-speak play` reads back what this terminal was working on, oldest first.
+Prefer it to just talk? `claude-speak hold off`.
 
 **The meeting guard.** Even with auto-speak on, nothing is spoken — and no ding
 plays — while an application is recording from your microphone. If you're on a
