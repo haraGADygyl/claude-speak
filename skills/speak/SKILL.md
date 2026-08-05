@@ -32,7 +32,7 @@ Rules:
 - If the output says to run `claude-speak install`, say so in one line — the neural
   voice model has not been downloaded yet.
 - If the argument was not recognised, say so in one line and list the valid ones inline:
-  `on, off, stop, status, speed <n>, voice <name>, max <n>, mode <queue|interrupt|drop>,
+  `on, off, stop, status, speed <n>, voice <name>, max <n>, mode <queue|interrupt|drop>, guard <on|off|test>, sound <file|off|default>,
   queue, hold <on|off>, pending, play [project], clear, voices, audition, install, restart, log`.
 
 Reference — settings live in `~/.config/claude-speak/config.json`, the model and

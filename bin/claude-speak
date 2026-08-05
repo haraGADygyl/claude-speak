@@ -16,11 +16,15 @@
 #   claude-speak restart         restart the TTS daemon
 #   claude-speak log             tail the daemon log
 #
-# Stepping away from a terminal:
-#   claude-speak hold on         stash replies + desktop notification
+# Replies are HELD by default — stashed with a notification, never spoken
+# unless you ask. "claude-speak hold off" makes them read out automatically.
+#
 #   claude-speak pending         list what is waiting
 #   claude-speak play [project]  speak everything waiting, oldest first
 #   claude-speak clear           discard what is waiting
+#   claude-speak hold off | on   auto-speak replies, or hold them
+#   claude-speak sound <file>    ding when a reply lands (off | default | path)
+#   claude-speak guard test      meeting guard: never speak while the mic is live
 set -uo pipefail
 
 # Resolve symlinks so this works when linked into ~/.local/bin. Done by hand
@@ -47,10 +51,7 @@ need_jq() {
   command -v jq >/dev/null || { echo "claude-speak needs 'jq' installed" >&2; exit 1; }
 }
 
-ensure_cfg() {
-  [[ -f "$CFG" ]] && return
-  mkdir -p "$(dirname "$CFG")"
-  cat >"$CFG" <<'JSON'
+read -r -d '' DEFAULT_CFG <<'JSON'
 {
   "enabled": true,
   "engine": "auto",
@@ -60,10 +61,26 @@ ensure_cfg() {
   "announceCode": true,
   "shortenPaths": true,
   "multiSession": "queue",
-  "holdReplies": false,
-  "notify": true
+  "holdReplies": true,
+  "notify": true,
+  "holdSound": "",
+  "meetingGuard": true,
+  "meetingGuardIgnore": []
 }
 JSON
+
+ensure_cfg() {
+  mkdir -p "$(dirname "$CFG")"
+  if [[ ! -f "$CFG" ]]; then
+    printf '%s\n' "$DEFAULT_CFG" >"$CFG"
+    return
+  fi
+  # Fill in keys added by newer versions without touching the user's choices:
+  # `$d * .` merges defaults underneath whatever is already set.
+  command -v jq >/dev/null || return
+  if [[ -n "$(jq --argjson d "$DEFAULT_CFG" -r '($d | keys) - (. | keys) | .[]' "$CFG" 2>/dev/null)" ]]; then
+    tmp=$(mktemp) && jq --argjson d "$DEFAULT_CFG" '$d * .' "$CFG" >"$tmp" && mv "$tmp" "$CFG"
+  fi
 }
 
 set_key() { need_jq; tmp=$(mktemp) && jq "$1" "$CFG" >"$tmp" && mv "$tmp" "$CFG"; }
@@ -75,7 +92,7 @@ kokoro_ready() {
 
 status() {
   need_jq
-  jq '{enabled, engine, voice, speed, maxChars, multiSession, holdReplies, notify}' "$CFG"
+  jq '{enabled, engine, voice, speed, maxChars, multiSession, holdReplies, holdSound, meetingGuard, notify}' "$CFG"
   if kokoro_ready; then
     printf 'engine:  kokoro (neural, local)\n'
   else
@@ -133,6 +150,39 @@ case "${1:-status}" in
            echo "hold: on — replies are stashed and announced; play them with: claude-speak play" ;;
       off) set_key '.holdReplies = false'; echo "hold: off — replies are spoken as they finish" ;;
       *)   printf 'hold is %s\n' "$([ "$(get .holdReplies)" = "true" ] && echo on || echo off)" ;;
+    esac
+    ;;
+
+  guard)
+    case "${2:-}" in
+      on)  set_key '.meetingGuard = true'
+           echo "meeting guard: on — nothing is spoken while your microphone is in use" ;;
+      off) set_key '.meetingGuard = false'
+           echo "meeting guard: off — replies may be spoken during calls" ;;
+      test|"")
+        if [[ "$(get .meetingGuard)" != "true" ]]; then echo "meeting guard: off"; exit 0; fi
+        apps=$(pactl list source-outputs 2>/dev/null \
+               | grep -oP 'application\.name = "\K[^"]*' | sort -u | paste -sd', ')
+        if [[ -n "$apps" ]]; then
+          echo "meeting guard: on — ACTIVE, microphone in use by: $apps"
+        else
+          echo "meeting guard: on — idle, nothing is recording"
+        fi
+        ;;
+      *) echo "usage: claude-speak guard [on|off|test]"; exit 2 ;;
+    esac
+    ;;
+
+  sound)
+    case "${2:-}" in
+      "")  v=$(get .holdSound); [[ -z "$v" || "$v" == "null" ]] && v="(system default)"; printf 'hold sound: %s\n' "$v" ;;
+      off) set_key '.holdSound = "off"'; echo "hold sound: off — silent notification only" ;;
+      default) set_key '.holdSound = ""'; echo "hold sound: system default" ;;
+      *)
+        [[ -f "$2" ]] || { echo "no such file: $2"; exit 2; }
+        set_key ".holdSound = \"$2\""; echo "hold sound: $2"
+        paplay "$2" 2>/dev/null || aplay -q "$2" 2>/dev/null
+        ;;
     esac
     ;;
 
@@ -205,11 +255,12 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     ;;
 
   status|"") status ;;
-  -h|--help|help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *)
     echo "unknown option: $1"
     echo "valid: install on off stop status speed <n> voice <name> max <n> mode <m>"
-    echo "       queue hold <on|off> pending play [project] clear voices audition restart log"
+    echo "       queue hold <on|off> guard <on|off|test> sound <file|off|default>"
+    echo "       pending play [project] clear voices audition restart log"
     exit 2
     ;;
 esac

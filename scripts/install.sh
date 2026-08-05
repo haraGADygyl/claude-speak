@@ -81,8 +81,11 @@ if [[ ! -f "$CFG" ]]; then
   "announceCode": true,
   "shortenPaths": true,
   "multiSession": "queue",
-  "holdReplies": false,
-  "notify": true
+  "holdReplies": true,
+  "notify": true,
+  "holdSound": "",
+  "meetingGuard": true,
+  "meetingGuardIgnore": []
 }
 JSON
   say "Wrote config to $CFG"
@@ -121,18 +124,25 @@ fi
 # ------------------------------------------------------------------ done ----
 say "Testing"
 python3 "$SCRIPTS/say.py" --voice "$( command -v jq >/dev/null && jq -r .voice "$CFG" || echo af_heart )" \
-  "Claude speak is installed. Replies will now be read aloud in this voice."
+  "Claude speak is installed. This is the voice your replies will use when you play them."
 
 cat <<'DONE'
 
 Done. Useful commands:
 
+Replies are HELD by default -- you get a ding and a notification, and
+hear them when you ask:
+
+  claude-speak play         read everything waiting, oldest first
+  claude-speak hold off     or have replies spoken automatically
+
+Even with auto-speak on, nothing is spoken while your microphone is in
+use, so a call is never interrupted (claude-speak guard test).
+
   claude-speak audition     hear the 10 best English voices, then pick one
   claude-speak voice bm_george
   claude-speak speed 1.2
-  claude-speak off          stop reading replies aloud
 
-In Claude Code the same controls are available as /speak (for example
-"/speak off", "/speak speed 1.2"). Restart Claude Code once so the Stop
-hook loads.
+The same controls exist in Claude Code as /speak (for example "/speak
+play"). Restart Claude Code once so the Stop hook loads.
 DONE

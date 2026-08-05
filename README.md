@@ -20,7 +20,37 @@ Then, once, to fetch the voice model (~338 MB):
 claude-speak install
 ```
 
-Restart Claude Code and it starts talking.
+Restart Claude Code, and you're set.
+
+## Quiet by default
+
+Nothing ever starts talking on its own. When a reply finishes you get a short
+ding and a desktop notification; you hear it when *you* ask:
+
+```
+claude-speak play
+```
+
+That default exists because the alternative has a failure mode: a terminal
+finishing mid-meeting and a voice announcing your code to a client. Two layers
+prevent it.
+
+**Replies are held.** They're stashed with a notification rather than spoken.
+`claude-speak play` reads everything waiting, oldest first, each announced by
+project. Prefer it to just talk? `claude-speak hold off`.
+
+**The meeting guard.** Even with auto-speak on, nothing is spoken — and no ding
+plays — while an application is recording from your microphone. If you're on a
+call, you're not interrupted, whether or not you remembered to arm anything.
+
+```
+claude-speak guard test     # is the guard active right now, and what tripped it
+claude-speak guard off      # disable it
+```
+
+It works by checking for live recording streams (PulseAudio/PipeWire source
+outputs), so Zoom, Meet, Teams, Discord and browser calls all count. Playback
+streams are a different thing entirely, so it never trips on its own audio.
 
 ---
 
@@ -49,14 +79,8 @@ a reply from another project waits its turn and introduces itself — *"From api
 server. The migration finished…"* — instead of cutting off whatever is speaking.
 A new reply from the *same* session does interrupt it, because that one is stale.
 
-**It can wait until you're back.** Stepping away from a terminal:
-
-```
-claude-speak hold on
-```
-
-Replies stop being spoken. Each one is stashed and announced with a desktop
-notification. When you return:
+**It waits until you're back.** This is the default. Replies are stashed and
+announced rather than spoken, so nothing surprises you:
 
 ```
 claude-speak play          # everything, oldest first, announced by project
@@ -80,7 +104,9 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `voices` | List all 54 |
 | `audition` | Play the 10 best English voices back to back |
 | `max 4000` | Characters read per reply before it stops |
-| `hold on` / `off` | Stash replies instead of speaking them |
+| `hold on` / `off` | Stash replies (default) or speak them as they finish |
+| `guard on` / `off` / `test` | Never speak while your microphone is in use |
+| `sound <file>` | Ding when a reply lands — `off`, `default`, or a path |
 | `pending` / `play` / `clear` | Manage stashed replies |
 | `mode queue` | Multi-terminal behaviour: `queue`, `interrupt`, `drop` |
 | `queue` | What's speaking and what's waiting |
@@ -103,6 +129,8 @@ Kokoro playback there needs `ffplay` or `sox`.
 - `espeak-ng` — Kokoro uses it for phonemes
 - An audio player: `paplay` (PipeWire/PulseAudio), `aplay`, `ffplay`, or `sox`
 - Optional: `libnotify` (`notify-send`) for hold-mode notifications
+- Optional: `pactl` (pulseaudio-utils) — required by the meeting guard; without
+  it the guard silently does nothing
 - Optional: systemd — used to keep the daemon warm across reboots. Without it the
   daemon starts on first use and stays up for the login session.
 
@@ -169,6 +197,10 @@ works; the notification path depends on your desktop.
 
 **One voice at a time.** Speech is serialized by design. Two replies never
 overlap.
+
+**The meeting guard needs `pactl`.** It detects recording streams through
+PulseAudio/PipeWire. On a system using bare ALSA or JACK it can't see anything
+and stays inert — hold mode is the fallback there.
 
 ---
 

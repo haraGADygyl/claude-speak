@@ -31,9 +31,21 @@ DEFAULTS = {
     #   interrupt — the newest reply always cuts off whatever is speaking
     #   drop      — ignore replies arriving while another session speaks
     "multiSession": "queue",
-    # Stepping away: stash replies + desktop notification instead of speaking.
-    "holdReplies": False,
+    # Replies are held by default: stashed with a notification rather than
+    # spoken. Nothing ever starts talking unless you asked it to. Turn this off
+    # (`claude-speak hold off`) to have replies read out as they finish.
+    "holdReplies": True,
     "notify": True,
+    # Short sound when a reply lands in hold mode. Path to an audio file, or
+    # "off" for silence. Empty string picks a sensible system sound.
+    "holdSound": "",
+    # Never speak while something is recording from the microphone — you are on
+    # a call. Applies even with holdReplies off, and suppresses the ding too, so
+    # a meeting stays quiet. See `claude-speak guard`.
+    "meetingGuard": True,
+    # Recording apps that should NOT count as "in a meeting" (substring match,
+    # case-insensitive), e.g. an always-on hotword listener.
+    "meetingGuardIgnore": [],
     # Fallback engine tuning (only used when Kokoro is not installed).
     "fallbackRate": 25,
     "fallbackVoice": "female1",
@@ -139,7 +151,64 @@ def notify(title, body):
         pass
 
 
-def hold(text, cfg):
+DING_CANDIDATES = [
+    "/usr/share/sounds/freedesktop/stereo/message.oga",
+    "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga",
+    "/usr/share/sounds/freedesktop/stereo/bell.oga",
+    "/System/Library/Sounds/Tink.aiff",
+]
+
+
+def ding(cfg):
+    """Short sound saying a reply is waiting. Deliberately not the voice."""
+    path = str(cfg.get("holdSound") or "")
+    if path.lower() == "off":
+        return
+    if not path:
+        path = next((p for p in DING_CANDIDATES if os.path.exists(p)), "")
+    if not path or not os.path.exists(path):
+        return
+
+    if shutil.which("paplay"):
+        cmd = ["paplay", path]
+    elif shutil.which("afplay"):
+        cmd = ["afplay", path]
+    elif shutil.which("ffplay"):
+        cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path]
+    elif shutil.which("aplay"):
+        cmd = ["aplay", "-q", path]
+    else:
+        return
+    try:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def mic_in_use(cfg):
+    """True when some app is recording — i.e. you are on a call.
+
+    A PulseAudio/PipeWire 'source output' is a recording stream. Playback
+    streams are sink inputs, so this never trips on our own audio.
+    """
+    if not cfg.get("meetingGuard", True) or not shutil.which("pactl"):
+        return False
+    try:
+        out = subprocess.run(["pactl", "list", "source-outputs"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+    ignore = [str(s).lower() for s in cfg.get("meetingGuardIgnore") or []]
+    names = re.findall(r'application\.name = "([^"]*)"', out)
+    if not names:
+        # A stream with no application.name still counts as a live recording.
+        return bool(re.search(r"^Source Output #", out, re.MULTILINE)) and not ignore
+    return any(not any(ig in n.lower() for ig in ignore) for n in names)
+
+
+def hold(text, cfg, quiet=False):
     """Stash the reply for later playback and say that it is waiting."""
     entry = {"ts": time.time(), "session": cfg["_session"],
              "label": cfg["_label"], "text": text}
@@ -164,6 +233,8 @@ def hold(text, cfg):
         pass
     notify("Claude · %s" % cfg["_label"],
            "Reply ready — %d waiting. Run: claude-speak play" % waiting)
+    if not quiet:
+        ding(cfg)
 
 
 def pick_engine(cfg):
@@ -242,7 +313,14 @@ def main():
         cut = text.rfind(".", 0, limit)
         text = text[: cut + 1 if cut > limit // 2 else limit] + " . Rest is on screen."
 
-    hold(text, cfg) if cfg["holdReplies"] else speak(text, cfg)
+    # A live microphone outranks every other setting: stash the reply and make
+    # no sound at all, so a client call is never interrupted.
+    if mic_in_use(cfg):
+        hold(text, cfg, quiet=True)
+    elif cfg["holdReplies"]:
+        hold(text, cfg)
+    else:
+        speak(text, cfg)
 
 
 if __name__ == "__main__":
