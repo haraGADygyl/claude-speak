@@ -23,8 +23,19 @@
 #   claude-speak clear           discard what is waiting
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPTS="$(cd "$HERE/../scripts" && pwd)"
+# Resolve symlinks so this works when linked into ~/.local/bin. Done by hand
+# rather than with `readlink -f`, which older macOS does not have.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  TARGET="$(readlink "$SELF")"
+  case "$TARGET" in
+    /*) SELF="$TARGET" ;;
+    *)  SELF="$(dirname "$SELF")/$TARGET" ;;
+  esac
+done
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+SCRIPTS="$(cd "$HERE/../scripts" && pwd)" || {
+  echo "claude-speak: cannot find scripts/ next to $HERE" >&2; exit 1; }
 
 DATA="${CLAUDE_SPEAK_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-speak}"
 CFG="${CLAUDE_SPEAK_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-speak/config.json}"
