@@ -294,6 +294,25 @@ class ReadCommand(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("nothing to read", r.stdout)
 
+    def test_at_prefixed_path(self):
+        # Claude Code's @-completion hands us "@docs/x.md". Empty on purpose:
+        # reaching "nothing to read" proves the @ was stripped and the file
+        # found, without synthesizing anything.
+        path = os.path.join(self.dir, "notes.md")
+        open(path, "w").close()
+        r = self.read("@" + path)
+        self.assertEqual(r.returncode, 0, "the @ prefix was not stripped")
+        self.assertIn("nothing to read", r.stdout)
+
+    def test_at_prefix_kept_when_that_file_is_real(self):
+        # A file genuinely named "@weird.md" wins over the stripped form.
+        # Stripping here would hit the directory and fail with exit 2.
+        open(os.path.join(self.dir, "@weird.md"), "w").close()
+        os.mkdir(os.path.join(self.dir, "weird.md"))
+        r = self.read(os.path.join(self.dir, "@weird.md"))
+        self.assertEqual(r.returncode, 0, "stripped an @ that was part of the name")
+        self.assertIn("nothing to read", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

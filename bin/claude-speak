@@ -292,6 +292,10 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
 
   read)
     f="${2:?usage: claude-speak read <file>   (- reads stdin)}"
+    # Claude Code's @-completion inserts the path with an @ on the front, so
+    # "/speak read @docs/x.md" arrives here literally. Strip it only when that
+    # is what makes the path resolve, in case a file really is named @foo.
+    [[ "$f" == @* && ! -e "$f" && -e "${f#@}" ]] && f="${f#@}"
     if [[ "$f" != "-" ]]; then
       [[ -e "$f" ]] || { echo "no such file: $f" >&2; exit 2; }
       [[ -f "$f" && -r "$f" ]] || { echo "not a readable file: $f" >&2; exit 2; }
