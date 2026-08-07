@@ -86,17 +86,31 @@ Adding a user-visible command touches four places:
 
 ## Releasing
 
-The version bump *is* the release. After pushing it, tag:
+The version bump *is* the release. Three steps after pushing it:
 
 ```bash
-claude plugin tag -m "claude-speak %s — <one line>" --push
+# 1. tag — refuses to run unless plugin.json and the marketplace entry agree,
+#    which is the check worth having, since the two are edited separately
+claude plugin tag -m "claude-speak %s — <one line>" --push     # --dry-run first
+
+# 2. release notes — write them to a file, then
+gh release create claude-speak--v<version> --verify-tag \
+  --title "<version> — <two or three words>" --notes-file <path>
+
+# 3. ship it
+claude plugin update claude-speak@claude-speak                 # bare name fails
 ```
 
-That creates `claude-speak--v<version>` at HEAD and refuses to run unless `plugin.json` and the marketplace entry agree — which is the check worth having, since the two are edited separately. `--dry-run` shows what it would do.
+Write the notes for someone who *uses* the plugin: what changed in what they hear, not which file moved. The commit bodies are the source — `--notes-from-tag` only picks up the one-line annotation. Past releases are the model for length and tone.
 
-Tags run back to 0.1.0. Each marks the last commit carrying that version, except `v0.3.0`, cut at `f7888ac`: the three commits after it shipped the `read` feature without a bump, so they belong to the 0.4.0 range.
+Two traps, both hit while backfilling the first seven:
 
-Ship the update with `claude plugin update claude-speak@claude-speak` — the bare name is not enough, and a session restart is needed to load it.
+- `--verify-tag` followed by an empty argument makes `gh` read `""` as an asset path and fail with `stat : no such file or directory`. Watch for empty shell variables in that position
+- `gh` marks **Latest** by creation time, not version. Releasing in order is fine; a bulk backfill needs `gh release edit <tag> --latest` afterwards
+
+Tags run back to 0.1.0, each marking the last commit carrying that version — except `v0.3.0`, cut at `f7888ac`, because the three commits after it shipped the `read` feature without a bump and belong to the 0.4.0 range.
+
+A session restart is needed after step 3 for the Stop hook to pick up the new code.
 
 ## Commit style
 
