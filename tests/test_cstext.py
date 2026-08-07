@@ -7,7 +7,9 @@ Standard library only, and no audio: nothing here reaches the daemon. The CLI
 tests cover only the paths that fail before anything would be spoken.
 """
 
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -282,6 +284,31 @@ class LoadConfig(unittest.TestCase):
     def test_corrupt_config_falls_back(self):
         self.point_at("{not json")
         self.assertEqual(cstext.load_config(), cstext.DEFAULTS)
+
+
+class DefaultsAgree(unittest.TestCase):
+    """The settings defaults are written out in three places.
+
+    cstext.DEFAULTS is what the hook falls back to; the two shell heredocs are
+    what actually lands in a user's config.json — install.sh writes it, and
+    ensure_cfg in bin/claude-speak merges new keys into an existing one. A key
+    missing from a heredoc can never reach a config file, which is how
+    fallbackRate and fallbackVoice went absent for four releases.
+    """
+
+    HEREDOC = re.compile(r"<<'JSON'\n(.*?)\nJSON", re.DOTALL)
+
+    def shell_defaults(self, relpath):
+        with open(os.path.join(ROOT, relpath)) as fh:
+            m = self.HEREDOC.search(fh.read())
+        self.assertIsNotNone(m, "no JSON heredoc found in %s" % relpath)
+        return json.loads(m.group(1))
+
+    def test_bin_claude_speak(self):
+        self.assertEqual(self.shell_defaults("bin/claude-speak"), cstext.DEFAULTS)
+
+    def test_install_sh(self):
+        self.assertEqual(self.shell_defaults("scripts/install.sh"), cstext.DEFAULTS)
 
 
 class FilterCLI(unittest.TestCase):

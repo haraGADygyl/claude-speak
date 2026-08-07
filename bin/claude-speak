@@ -68,7 +68,9 @@ read -r -d '' DEFAULT_CFG <<'JSON'
   "notify": true,
   "holdSound": "",
   "meetingGuard": true,
-  "meetingGuardIgnore": []
+  "meetingGuardIgnore": [],
+  "fallbackRate": 25,
+  "fallbackVoice": "female1"
 }
 JSON
 

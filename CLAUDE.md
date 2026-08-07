@@ -55,9 +55,13 @@ Set those two env vars for anything that writes state. Without them you scribble
 
 `cspaths.py` is the only place paths are defined. Runtime state sits in `~/.local/share/claude-speak/` and `~/.config/claude-speak/` deliberately: a plugin update replaces the plugin directory, and the 338 MB model has to survive that.
 
-## Adding a config setting means editing two files
+## Adding a config setting means editing three files
 
-Defaults are duplicated in `scripts/cstext.py` (`DEFAULTS`) and `bin/claude-speak` (`DEFAULT_CFG` heredoc). Both need the new key. `ensure_cfg` in `bin/claude-speak` then merges it into existing user configs with `jq '$d * .'`, so upgrades never clobber a user's choices.
+Defaults are spelled out in `scripts/cstext.py` (`DEFAULTS`), `bin/claude-speak` (`DEFAULT_CFG` heredoc) and `scripts/install.sh` (the heredoc that writes a fresh config). All three need the new key.
+
+Only the Python copy is a fallback; the heredocs are what actually reaches a user's `config.json`. A key missing from them can never appear in a config file — which is how `fallbackRate` and `fallbackVoice` stayed absent for four releases. `DefaultsAgree` in the tests compares all three, so the drift cannot recur silently.
+
+`ensure_cfg` in `bin/claude-speak` merges new keys into an existing config with `jq '$d * .'` on any invocation, so an upgrade adds them without touching choices the user already made.
 
 ## Behaviour that looks like a bug but is deliberate
 

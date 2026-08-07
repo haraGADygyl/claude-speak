@@ -85,7 +85,9 @@ if [[ ! -f "$CFG" ]]; then
   "notify": true,
   "holdSound": "",
   "meetingGuard": true,
-  "meetingGuardIgnore": []
+  "meetingGuardIgnore": [],
+  "fallbackRate": 25,
+  "fallbackVoice": "female1"
 }
 JSON
   say "Wrote config to $CFG"
