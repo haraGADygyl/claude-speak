@@ -3,6 +3,7 @@
 can call it with whatever python3 is on the system.
 
     say.py "some text"              speak it
+    say.py < notes.txt              speak a pipe or redirect
     say.py --stop                   cancel current speech
     say.py --status                 what is speaking / waiting
     say.py --voice af_bella "…"     override voice
@@ -85,14 +86,12 @@ def send(msg, start_daemon=True):
 
 def main():
     args = sys.argv[1:]
-    if not args:
-        sys.exit(1)
 
-    if args[0] == "--stop":
+    if args and args[0] == "--stop":
         send({"cmd": "stop"}, start_daemon=False)   # never boot it just to hush it
         sys.exit(0)
 
-    if args[0] == "--status":
+    if args and args[0] == "--status":
         # Checking on the daemon must never be the thing that starts it.
         out = send({"cmd": "status"}, start_daemon=False)
         print(out if out else "daemon not running")
@@ -113,7 +112,16 @@ def main():
         elif flag == "--mode":
             mode = args.pop(0)
 
-    text = " ".join(args) if args else sys.stdin.read()
+    # Anything left is the text; with none, take it from a pipe or redirect.
+    # A bare `say.py` on a terminal has nothing to say, so it stops there rather
+    # than blocking on a tty that will never send anything.
+    if args:
+        text = " ".join(args)
+    elif sys.stdin.isatty():
+        sys.exit(1)
+    else:
+        text = sys.stdin.read()
+
     if not text.strip():
         sys.exit(0)
     ok = send({"cmd": "say", "text": text, "voice": voice, "speed": speed,

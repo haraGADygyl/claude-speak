@@ -6,6 +6,7 @@
 #   claude-speak on | off        toggle reading replies aloud
 #   claude-speak stop            shut up right now
 #   claude-speak test            speak a sample line
+#   claude-speak read FILE       read a file aloud (- for stdin)
 #   claude-speak voice af_bella  pick a voice
 #   claude-speak voices          list every voice
 #   claude-speak audition        hear the best English voices back to back
@@ -289,6 +290,33 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     "$VENV_PY" "$SCRIPTS/audition.py" "$@" 2>/dev/null
     ;;
 
+  read)
+    f="${2:?usage: claude-speak read <file>   (- reads stdin)}"
+    if [[ "$f" != "-" ]]; then
+      [[ -e "$f" ]] || { echo "no such file: $f" >&2; exit 2; }
+      [[ -f "$f" && -r "$f" ]] || { echo "not a readable file: $f" >&2; exit 2; }
+    fi
+    # Same markdown stripping the Stop hook uses, so a README sounds like prose
+    # rather than punctuation. Refuses binary rather than reading it aloud.
+    text=$(python3 "$SCRIPTS/cstext.py" "$f") || exit 1
+    [[ -n "${text//[[:space:]]/}" ]] || { echo "nothing to read in $f"; exit 0; }
+
+    speed=$(get .speed)
+    # ~14 characters a second at 1.0x — enough of an estimate to warn you before
+    # a whole README starts talking. No cap: you asked for this file, not a
+    # sample of it, and "claude-speak stop" ends it early.
+    est=$(awk -v c="${#text}" -v s="$speed" 'BEGIN {
+      t = int(c / (14 * (s > 0 ? s : 1)))
+      if (t >= 60) printf "%dm%02ds", t / 60, t % 60; else printf "%ds", t
+    }')
+    # A fixed session id means a second "read" replaces the first instead of
+    # queueing behind it, and piping sidesteps the argv limit on big files.
+    printf '%s' "$text" | "${SAY[@]}" --session read-file --label "" \
+      --voice "$(get .voice)" --speed "$speed"
+    printf 'reading %s — %s chars, about %s. Stop with: claude-speak stop\n' \
+      "$([[ "$f" == "-" ]] && echo "stdin" || basename "$f")" "${#text}" "$est"
+    ;;
+
   test)
     "${SAY[@]}" --voice "$(get .voice)" --speed "$(get .speed)" \
       "This is how Claude Code will sound when it reads a reply aloud. I fixed the import in parser dot pi, line forty two, and the tests pass."
@@ -308,12 +336,15 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     ;;
 
   status|"") status ;;
-  -h|--help|help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  # The header comment is the help text; stop at the first line that isn't one,
+  # so adding a command never means fixing a line number here.
+  -h|--help|help) awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$SELF" ;;
   *)
     echo "unknown option: $1"
     echo "valid: install on off stop status speed <n> voice <name> max <n> mode <m>"
     echo "       queue hold <on|off> guard <on|off|test> sound <file|off|default>"
-    echo "       pending play [all|project] clear [all|project] voices audition restart log"
+    echo "       pending play [all|project] clear [all|project] read <file>"
+    echo "       voices audition test restart log"
     exit 2
     ;;
 esac

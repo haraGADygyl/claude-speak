@@ -75,6 +75,17 @@ first audio.
 sixty seconds of syntax. `src/api/parser.py:42` becomes *"parser.py line 42"*.
 URLs become *"link"*. Markdown, tables, and emoji are stripped.
 
+**It reads more than replies.** Point it at a file and it reads that instead —
+same voice, same markdown stripping:
+
+```
+claude-speak read RFC.md
+git log -5 | claude-speak read -
+```
+
+It tells you how long the file will take before it starts, and `claude-speak
+stop` ends it early. Binary files are refused rather than read aloud.
+
 **It knows which terminal is talking.** With several Claude Code sessions open,
 a reply from another project waits its turn and introduces itself — *"From api
 server. The migration finished…"* — instead of cutting off whatever is speaking.
@@ -115,6 +126,7 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `sound <file>` | Ding when a reply lands — `off`, `default`, or a path |
 | `play` / `play all` / `play <project>` | Read stashed replies — this terminal, everything, or one project |
 | `pending` / `clear` | List or discard stashed replies (same scoping) |
+| `read <file>` | Read any file aloud — `-` for stdin |
 | `mode queue` | Multi-terminal behaviour: `queue`, `interrupt`, `drop` |
 | `queue` | What's speaking and what's waiting |
 | `status` | Current settings |
@@ -159,7 +171,8 @@ run `claude-speak install`.
 Claude finishes a reply
         │
         ▼
-  Stop hook  scripts/speak-hook.py        strips markdown, applies your settings
+  Stop hook  scripts/speak-hook.py        applies your settings
+        │    scripts/cstext.py            strips markdown — shared with "read"
         │
         ▼
   Client     scripts/say.py               unix socket, ~30 ms, exits immediately

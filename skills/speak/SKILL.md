@@ -1,6 +1,6 @@
 ---
 description: Read Claude's replies aloud — on, off, stop, speed, voice, hold, play (TTS output, not dictation)
-argument-hint: "[on|off|stop|status|speed 1.2|voice af_bella|max 4000|mode queue|hold on|pending|play|play all|clear|audition|install|restart|log]"
+argument-hint: "[on|off|stop|status|speed 1.2|voice af_bella|max 4000|mode queue|hold on|pending|play|play all|clear|read FILE|audition|install|restart|log]"
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/claude-speak:*) Bash(claude-speak:*)
 ---
@@ -22,6 +22,7 @@ Report the result in **one short line**. Examples of the whole reply:
 - `Voice off.`
 - `Speed now 1.2x.`
 - `3 replies waiting from api-server and GitHub.`
+- `Reading README.md — about 4 minutes.`
 
 Rules:
 
@@ -33,7 +34,7 @@ Rules:
   voice model has not been downloaded yet.
 - If the argument was not recognised, say so in one line and list the valid ones inline:
   `on, off, stop, status, speed <n>, voice <name>, max <n>, mode <queue|interrupt|drop>, guard <on|off|test>, sound <file|off|default>,
-  queue, hold <on|off>, pending, play [all|project], clear [all|project], voices, audition, install, restart, log`.
+  queue, hold <on|off>, pending, play [all|project], clear [all|project], read <file>, voices, audition, install, restart, log`.
 
 Reference — settings live in `~/.config/claude-speak/config.json`, the model and
 held replies in `~/.local/share/claude-speak/`, and the daemon is the systemd user
