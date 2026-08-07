@@ -200,6 +200,14 @@ update never re-downloads 338 MB:
 
 Override with `CLAUDE_SPEAK_HOME` and `CLAUDE_SPEAK_CONFIG`.
 
+The text cleaning is the part with edge cases — `src/api/parser.py:42` has to
+shorten while `and/or` and `24/7` stay put. It has tests, and they need nothing
+installed and play no audio:
+
+```bash
+python3 -m unittest discover tests
+```
+
 ---
 
 ## Known limits
