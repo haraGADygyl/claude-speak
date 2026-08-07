@@ -157,6 +157,72 @@ class Clean(unittest.TestCase):
         self.assertEqual(cstext.clean("\n\n   \n", cfg()), "")
 
 
+class SplitChunks(unittest.TestCase):
+    """Chunks are played in the order they are emitted, so order is the point.
+
+    A piece emitted out of turn is heard out of turn: a sentence goes quiet,
+    the next one plays, then the quiet one turns up late.
+    """
+
+    LIMIT = cstext.CHUNK_CHARS
+
+    def assertInOrder(self, text):
+        """No character lost, duplicated or moved.
+
+        Compared without whitespace: a word too long to break has to be cut
+        mid-token, and those pieces cannot be rejoined with a space. Spacing
+        between words is checked separately, below.
+        """
+        chunks = cstext.split_chunks(text)
+        squash = lambda s: "".join(s.split())        # noqa: E731
+        self.assertEqual(squash("".join(chunks)), squash(text),
+                         "chunks do not reassemble into the source text")
+        for c in chunks:
+            self.assertLessEqual(len(c), self.LIMIT,
+                                 "chunk over the %d-char limit" % self.LIMIT)
+        return chunks
+
+    def test_word_spacing_survives(self):
+        text = "One. Two. " + "a long stretch of words " * 30 + "end."
+        self.assertEqual(" ".join(" ".join(cstext.split_chunks(text)).split()),
+                         " ".join(text.split()),
+                         "a space between words was lost or added")
+
+    def test_short_sentence_before_a_long_one(self):
+        # The regression: the long sentence's first slice used to be emitted
+        # before the short sentence still sitting in the buffer.
+        short = "We derive a fingerprint from the approved set."
+        long_ = "That covers palette and contrast, " + "and more detail " * 20 + "yes."
+        chunks = self.assertInOrder(short + " " + long_)
+        self.assertTrue(chunks[0].startswith("We derive"),
+                        "the long sentence jumped ahead: %r" % chunks[0][:60])
+
+    def test_many_shorts_then_a_long_one(self):
+        text = ("One. Two. Three. " + "A long stretch of words " * 30 + "end.")
+        self.assertInOrder(text)
+
+    def test_alternating(self):
+        long_ = "Long one " * 40 + "."
+        self.assertInOrder("Start. %s Middle. %s End." % (long_, long_))
+
+    def test_no_space_to_break_on(self):
+        # rfind returns -1 here, and -1 is truthy — `or limit` never fired, so
+        # the old code cut at part[:-1] and ignored the limit entirely.
+        self.assertInOrder("Here it is: " + "x" * 600 + " done.")
+
+    def test_ordinary_prose_is_untouched(self):
+        self.assertEqual(cstext.split_chunks("One. Two. Three."),
+                         ["One. Two. Three."])
+
+    def test_empty(self):
+        self.assertEqual(cstext.split_chunks(""), [])
+        self.assertEqual(cstext.split_chunks("   \n  "), [])
+
+    def test_a_whole_reply(self):
+        with open(os.path.join(ROOT, "README.md")) as fh:
+            self.assertInOrder(cstext.clean(fh.read(), cfg()))
+
+
 class ReadSource(unittest.TestCase):
 
     def setUp(self):

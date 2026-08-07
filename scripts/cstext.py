@@ -132,6 +132,43 @@ def clean(text, cfg):
     return text.strip() if re.search(r"\w", text) else ""
 
 
+CHUNK_CHARS = 260   # synthesis granularity; playback starts after chunk 1
+
+
+def split_chunks(text, limit=CHUNK_CHARS):
+    """Sentence-sized pieces, in the order they appear in the text.
+
+    Order is the whole contract. The daemon writes each piece to the player as
+    soon as it is synthesized, so a piece emitted out of turn is *heard* out of
+    turn — a sentence goes missing, the next one plays, then the missing one
+    turns up late.
+    """
+    parts = re.split(r"(?<=[.!?:;])\s+", text)
+    chunks, cur = [], ""
+    for part in parts:
+        while len(part) > limit:                  # a single monster sentence
+            cut = part.rfind(" ", 0, limit)
+            if cut <= 0:                          # no space to break on
+                cut = limit
+            if cur:
+                # Flush the buffer first. Appending these slices straight to
+                # chunks is what used to let a long sentence jump the queue
+                # ahead of the short one before it.
+                chunks.append(cur)
+                cur = ""
+            chunks.append(part[:cut].strip())
+            part = part[cut:].lstrip()
+        if len(cur) + len(part) + 1 <= limit:
+            cur = (cur + " " + part).strip()
+        else:
+            if cur:
+                chunks.append(cur)
+            cur = part.strip()
+    if cur:
+        chunks.append(cur)
+    return [c for c in chunks if c]
+
+
 def read_source(path):
     """A file, or stdin for "-". Binary is refused rather than read aloud."""
     if path == "-":

@@ -18,7 +18,6 @@ Multi-session behaviour, with several Claude Code terminals sharing one daemon:
 import collections
 import json
 import os
-import re
 import shutil
 import socket
 import subprocess
@@ -29,28 +28,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cspaths  # noqa: E402
+# Chunking is pure text handling, so it lives with the rest of it in cstext —
+# stdlib only, and testable without the venv this daemon runs under.
+from cstext import split_chunks  # noqa: E402
 
-CHUNK_CHARS = 260   # synthesis granularity; playback starts after chunk 1
 MAX_QUEUE = 3       # waiting replies; oldest is dropped beyond this
-
-
-def split_chunks(text, limit=CHUNK_CHARS):
-    parts = re.split(r"(?<=[.!?:;])\s+", text)
-    chunks, cur = [], ""
-    for part in parts:
-        while len(part) > limit:                  # a single monster sentence
-            cut = part.rfind(" ", 0, limit) or limit
-            chunks.append(part[:cut].strip())
-            part = part[cut:]
-        if len(cur) + len(part) + 1 <= limit:
-            cur = (cur + " " + part).strip()
-        else:
-            if cur:
-                chunks.append(cur)
-            cur = part.strip()
-    if cur:
-        chunks.append(cur)
-    return [c for c in chunks if c]
 
 
 def player_cmd(rate):
