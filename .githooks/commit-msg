@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Reject commit messages that are not Conventional Commits.
+#
+# Enabled per clone, since git does not version-control .git/hooks:
+#
+#     git config core.hooksPath .githooks
+#
+# Bypass for a one-off with `git commit --no-verify`.
+set -uo pipefail
+
+MSG_FILE="$1"
+
+# The message as git will store it: comments stripped, trailing blanks gone.
+BODY="$(grep -v '^[[:space:]]*#' "$MSG_FILE")"
+SUBJECT="$(printf '%s\n' "$BODY" | sed '/./,$!d' | head -n 1)"
+
+# Git writes these itself, or rewrites them later during an autosquash.
+case "$SUBJECT" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*|"amend!"*) exit 0 ;;
+esac
+
+# An empty message aborts the commit anyway; let git say so in its own words.
+[[ -z "${SUBJECT// }" ]] && exit 0
+
+TYPES='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+
+fail() {
+  printf '\033[31mcommit-msg:\033[0m %s\n\n' "$1" >&2
+  printf '  your subject: %s\n\n' "${SUBJECT:-(empty)}" >&2
+  cat >&2 <<'EOF'
+  Conventional Commits: <type>[optional scope][!]: <description>
+
+    feat: read any file aloud with claude-speak read
+    fix(cleaner): keep the paragraph break before a heading
+    docs: document the two Python runtimes
+    chore(release): 0.4.0
+    refactor!: drop the espeak fallback          # ! marks a breaking change
+
+  type is one of: feat fix docs style refactor perf test build ci chore revert
+  scope is optional and free-form, e.g. (cleaner) (hook) (daemon) (cli)
+
+  Keep writing the body the way this repo already does: a blank line, a
+  paragraph on why, then bullets on what.
+
+  Bypass once with:  git commit --no-verify
+EOF
+  exit 1
+}
+
+if ! printf '%s' "$SUBJECT" | grep -qE "^($TYPES)(\([a-zA-Z0-9._/ -]+\))?!?: .+"; then
+  # Point at the likeliest mistake rather than just restating the rule.
+  if printf '%s' "$SUBJECT" | grep -qE "^[a-zA-Z]+(\(.*\))?!?:"; then
+    fail "unknown type — the part before ':' must be one of the types below"
+  elif printf '%s' "$SUBJECT" | grep -qE "^($TYPES)(\(.*\))?!?:$"; then
+    fail "no description after the colon"
+  elif printf '%s' "$SUBJECT" | grep -qE "^($TYPES)(\(.*\))?!?:[^ ]"; then
+    fail "missing the space after the colon"
+  else
+    fail "missing a type prefix"
+  fi
+fi
+
+if [[ ${#SUBJECT} -gt 72 ]]; then
+  fail "subject is ${#SUBJECT} characters; keep it to 72"
+fi
+
+# A body has to be separated from the subject, or git treats it as one blob.
+SECOND="$(printf '%s\n' "$BODY" | sed '/./,$!d' | sed -n '2p')"
+if [[ -n "${SECOND// }" ]]; then
+  fail "put a blank line between the subject and the body"
+fi
+
+exit 0
