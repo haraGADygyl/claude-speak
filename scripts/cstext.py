@@ -65,6 +65,31 @@ def load_config():
 
 EMOJI = re.compile("[\U0001f000-\U0001faff←-⇿⌀-➿⬀-⯿️]")
 
+# A file path, so it can be read as "parser.py line 42" instead of spelled out.
+#
+# The lookbehind is what keeps a relative path whole: without it the match
+# starts at the first slash and src/api/parser.py comes out as "srcparser.py".
+#
+# A relative path also has to end in an extension. Nothing else separates
+# src/api/parser.py from "and/or", "TCP/IP", "he/she" or "24/7", and turning
+# those into "or", "IP", "she" and "7" is worse than leaving a path long.
+PATH = re.compile(r"""
+    (?<![\w.\-/])                       # a fresh token, never mid-path
+    (?:
+        (?:~|\.{1,2})?/(?:[\w.\-]+/)*   # rooted:  /a/b/   ~/a/   ./a/   ../a/
+        ([\w.\-]+)                      #   any final name — /usr/bin/ls counts
+      |
+        (?:[\w.\-]+/)+                  # relative: src/api/
+        ([\w.\-]*\.[A-Za-z]\w{0,4})     #   extension required, see above
+    )
+    (?::(\d+))?                         # :42
+""", re.VERBOSE)
+
+
+def _shorten_path(m):
+    name = m.group(1) or m.group(2)
+    return name + (" line " + m.group(3) if m.group(3) else "")
+
 
 def clean(text, cfg):
     marker = " . Code block. " if cfg["announceCode"] else " "
@@ -75,30 +100,36 @@ def clean(text, cfg):
     text = re.sub(r"https?://\S+", " link ", text)
 
     text = re.sub(r"`([^`]*)`", r"\1", text)
-    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*>\s?", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*([-*_])\s*\1\s*\1[\s\1]*$", "", text, flags=re.MULTILINE)
+    # Leading indentation is [ \t], never \s: under re.MULTILINE, \s* reaches
+    # back over the blank line above and swallows the paragraph break, which is
+    # what later becomes a full stop. "# Title\n\n> quote" ran the two together.
+    text = re.sub(r"^[ \t]{0,3}#{1,6}[ \t]*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[ \t]*>[ \t]?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$", "", text,
+                  flags=re.MULTILINE)                               # --- or *****
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"(?<!\w)[*_]([^*_\n]+)[*_](?!\w)", r"\1", text)
 
-    text = re.sub(r"^\s*[-*+]\s+", ". ", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*\d+[.)]\s+", ". ", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*\|.*\|\s*$", " ", text, flags=re.MULTILINE)   # table rows
+    text = re.sub(r"^[ \t]*[-*+][ \t]+", ". ", text, flags=re.MULTILINE)
+    text = re.sub(r"^[ \t]*\d+[.)][ \t]+", ". ", text, flags=re.MULTILINE)
+    text = re.sub(r"^[ \t]*\|.*\|[ \t]*$", " ", text, flags=re.MULTILINE)  # tables
 
     if cfg["shortenPaths"]:
-        text = re.sub(
-            r"(?:~|\.{0,2})?/(?:[\w.\-]+/){1,}([\w.\-]+)(?::(\d+))?",
-            lambda m: m.group(1) + (" line " + m.group(2) if m.group(2) else ""),
-            text,
-        )
+        text = PATH.sub(_shorten_path, text)
 
     text = EMOJI.sub(" ", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{2,}", ". ", text)
     text = text.replace("\n", " ")
     text = re.sub(r"(\.\s*){2,}", ". ", text)
+    # A paragraph break adds a full stop, so a line already ending in
+    # punctuation gets two: "Here's the plan:." before a list.
+    text = re.sub(r"([,;:!?])\s*\.", r"\1", text)
     text = re.sub(r"\s+([.,;:!?])", r"\1", text)
-    return text.strip()
+    text = re.sub(r"^[\s.]+", "", text)     # a reply opening with a list led with ". "
+    # Punctuation and nothing else is not worth a voice: a blank source
+    # collapses to a lone ".", which would be held and announced like a reply.
+    return text.strip() if re.search(r"\w", text) else ""
 
 
 def read_source(path):
