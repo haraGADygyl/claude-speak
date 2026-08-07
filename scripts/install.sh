@@ -4,6 +4,7 @@
 set -uo pipefail
 
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN="$(cd "$SCRIPTS/../bin" && pwd)"
 DATA="${CLAUDE_SPEAK_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-speak}"
 CFG="${CLAUDE_SPEAK_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-speak/config.json}"
 MODELS="$DATA/models"
@@ -16,11 +17,23 @@ die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- prereqs ---
 say "Checking prerequisites"
-command -v jq >/dev/null || warn "jq not found — install it (apt install jq) or the CLI won't run"
+case "$(uname -s)" in
+  Darwin) PKG="brew install" ;;
+  *)      PKG="sudo apt install" ;;
+esac
+
+command -v jq >/dev/null || warn "jq not found — $PKG jq, or the CLI won't run"
 command -v espeak-ng >/dev/null || command -v espeak >/dev/null \
-  || warn "espeak-ng not found — Kokoro needs it for phonemes (apt install espeak-ng)"
-command -v paplay >/dev/null || command -v aplay >/dev/null || command -v ffplay >/dev/null \
-  || warn "no audio player found — install pipewire-utils, alsa-utils, or ffmpeg"
+  || warn "espeak-ng not found — Kokoro needs it for phonemes ($PKG espeak-ng)"
+
+# Fatal, unlike the others: without a player the daemon cannot make a sound,
+# and finding that out after a 338 MB download is a poor way to learn it.
+# afplay ships with macOS, so this only ever bites on a bare Linux box.
+command -v paplay >/dev/null || command -v aplay >/dev/null \
+  || command -v ffplay >/dev/null || command -v play >/dev/null \
+  || command -v afplay >/dev/null \
+  || die "no audio player found — $PKG $(
+       [[ "$PKG" == brew* ]] && echo ffmpeg || echo 'pipewire-audio-client-libraries (or alsa-utils, ffmpeg, sox)')"
 
 PYBOOT=""
 for c in uv python3; do command -v "$c" >/dev/null && { PYBOOT="$c"; break; }; done
@@ -91,6 +104,31 @@ if [[ ! -f "$CFG" ]]; then
 }
 JSON
   say "Wrote config to $CFG"
+fi
+
+# ------------------------------------------------------------------ link ----
+# Nothing else puts claude-speak on PATH, so a fresh install had a CLI you
+# could not type. The plugin directory is versioned and moves on every update,
+# hence a symlink rather than a copy.
+BINDIR="$HOME/.local/bin"
+LINK="$BINDIR/claude-speak"
+if [[ -e "$LINK" || -L "$LINK" ]]; then
+  if [[ "$(readlink "$LINK" 2>/dev/null)" == "$BIN/claude-speak" ]]; then
+    say "claude-speak already linked into $BINDIR"
+  else
+    warn "$LINK exists and points elsewhere — leaving it alone"
+  fi
+else
+  mkdir -p "$BINDIR"
+  if ln -s "$BIN/claude-speak" "$LINK" 2>/dev/null; then
+    say "Linked claude-speak into $BINDIR"
+    case ":$PATH:" in
+      *":$BINDIR:"*) ;;
+      *) warn "$BINDIR is not on your PATH — add it, or use /speak inside Claude Code" ;;
+    esac
+  else
+    warn "could not link into $BINDIR — use /speak inside Claude Code instead"
+  fi
 fi
 
 # --------------------------------------------------------------- systemd ----

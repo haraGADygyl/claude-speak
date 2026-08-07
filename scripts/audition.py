@@ -6,14 +6,13 @@ and no timers are involved.
 """
 
 import os
-import shutil
-import subprocess
 import sys
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cspaths  # noqa: E402
+import csaudio  # noqa: E402
 
 PICKS = [
     ("af_heart",   "American female, warm"),
@@ -36,20 +35,12 @@ NUMBERS = ["one", "two", "three", "four", "five",
 
 
 def play(samples, rate):
-    if shutil.which("paplay"):
-        cmd = ["paplay", "--raw", "--format=s16le",
-               "--rate=%d" % rate, "--channels=1", "--client-name=ClaudeSpeak"]
-    elif shutil.which("aplay"):
-        cmd = ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(rate), "-c", "1"]
-    elif shutil.which("ffplay"):
-        cmd = ["ffplay", "-loglevel", "quiet", "-nodisp", "-autoexit",
-               "-f", "s16le", "-ar", str(rate), "-ac", "1", "-"]
-    else:
-        print("no audio player found", file=sys.stderr)
-        sys.exit(1)
     pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
-    subprocess.run(cmd, input=pcm, stdout=subprocess.DEVNULL,
-                   stderr=subprocess.DEVNULL)      # blocks until played
+    try:
+        csaudio.play_blocking(pcm, rate)           # blocks until played
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
 
 def main():

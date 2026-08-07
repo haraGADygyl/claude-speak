@@ -18,7 +18,6 @@ Multi-session behaviour, with several Claude Code terminals sharing one daemon:
 import collections
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -28,27 +27,12 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cspaths  # noqa: E402
+import csaudio  # noqa: E402
 # Chunking is pure text handling, so it lives with the rest of it in cstext —
 # stdlib only, and testable without the venv this daemon runs under.
 from cstext import split_chunks  # noqa: E402
 
 MAX_QUEUE = 3       # waiting replies; oldest is dropped beyond this
-
-
-def player_cmd(rate):
-    if shutil.which("paplay"):
-        return ["paplay", "--raw", "--format=s16le",
-                "--rate=%d" % rate, "--channels=1", "--client-name=ClaudeSpeak"]
-    if shutil.which("aplay"):
-        return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(rate), "-c", "1"]
-    if shutil.which("ffplay"):
-        return ["ffplay", "-loglevel", "quiet", "-nodisp", "-autoexit",
-                "-f", "s16le", "-ar", str(rate), "-ac", "1", "-"]
-    if shutil.which("sox"):
-        return ["play", "-q", "-t", "raw", "-r", str(rate), "-e", "signed",
-                "-b", "16", "-c", "1", "-"]
-    raise RuntimeError("no audio player found (install pipewire, alsa-utils, "
-                       "ffmpeg or sox)")
 
 
 class Job(object):
@@ -144,10 +128,44 @@ class Speaker:
             return ""
         return "From %s. " % job.label.replace("-", " ").replace("_", " ")
 
+    def _adopt(self, proc):
+        """Hand a player to stop(), unless a stop already arrived."""
+        with self.cv:
+            if self.cancel:
+                proc.kill()
+                return False
+            self.player = proc
+            return True
+
+    def _release(self, proc):
+        with self.cv:
+            if self.player is proc:
+                self.player = None
+
+    def _play_file(self, pcm, rate, player):
+        """One chunk through a file-only player. Blocks until it has played."""
+        path = csaudio.write_temp_wav(pcm, rate)
+        try:
+            proc = subprocess.Popen([player, path], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+            if not self._adopt(proc):
+                return False
+            proc.wait()
+            self._release(proc)
+            return not self.cancel
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
     def _speak(self, job):
         text = self._announce(job) + job.text
         self.last_label = job.label
-        player = None
+        # A streaming player takes the whole reply down one pipe; a file-only
+        # one (macOS afplay) takes a chunk at a time. Decided per reply, since
+        # the rate is not known until the first chunk is synthesized.
+        stream, file_player = None, csaudio.file_player()
         try:
             for chunk in split_chunks(text):
                 if self.cancel:
@@ -161,33 +179,36 @@ class Speaker:
                 if self.cancel:
                     return
 
-                if player is None:
-                    player = subprocess.Popen(
-                        player_cmd(rate), stdin=subprocess.PIPE,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    with self.cv:
-                        if self.cancel:
-                            player.kill()
-                            return
-                        self.player = player
-
                 pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+                cmd = csaudio.stream_cmd(rate)
+
+                if cmd is None:
+                    if file_player is None:
+                        raise RuntimeError(csaudio.NO_PLAYER)
+                    if not self._play_file(pcm, rate, file_player):
+                        return
+                    continue
+
+                if stream is None:
+                    stream = subprocess.Popen(
+                        cmd, stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if not self._adopt(stream):
+                        return
                 try:
-                    player.stdin.write(pcm)
-                    player.stdin.flush()
+                    stream.stdin.write(pcm)
+                    stream.stdin.flush()
                 except (BrokenPipeError, ValueError, OSError):
                     return
         finally:
-            if player is not None:
+            if stream is not None:
                 try:
-                    player.stdin.close()
-                    player.wait(timeout=300)   # let the queue wait its turn
+                    stream.stdin.close()
+                    stream.wait(timeout=300)   # let the queue wait its turn
                 except (BrokenPipeError, ValueError, OSError,
                         subprocess.TimeoutExpired):
                     pass
-                with self.cv:
-                    if self.player is player:
-                        self.player = None
+                self._release(stream)
 
 
 def handle(conn, speaker):

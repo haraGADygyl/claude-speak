@@ -9,18 +9,32 @@ model, and it starts talking before the whole reply has finished rendering.
 Built for people who'd rather listen than read a wall of text — and for anyone
 whose eyes are done for the day.
 
+First the system packages, which the installer checks for but will not install
+for you:
+
+```bash
+sudo apt install python3-venv jq espeak-ng libnotify-bin      # Debian/Ubuntu
+brew install jq espeak-ng                                     # macOS
+```
+
+Then, in Claude Code:
+
 ```
 /plugin marketplace add haraGADygyl/claude-speak
 /plugin install claude-speak
 ```
 
-Then, once, to fetch the voice model (~338 MB):
+Restart Claude Code, then fetch the voice model (~338 MB) — once:
 
 ```
-claude-speak install
+/speak install
 ```
 
-Restart Claude Code, and you're set.
+Use `/speak install` rather than a shell for this first run: the installer is
+what puts `claude-speak` on your PATH, by linking it into `~/.local/bin`. After
+it finishes, `claude-speak …` and `/speak …` are interchangeable.
+
+Restart Claude Code once more so the Stop hook loads, and you're set.
 
 ## Quiet by default
 
@@ -140,24 +154,26 @@ shell command without a model round trip, which matters when you want silence
 
 ## Requirements
 
-Linux is the tested platform. macOS works with the built-in `say` fallback;
-Kokoro playback there needs `ffplay` or `sox`.
+Linux is the tested platform; macOS is supported but less exercised.
 
-- `python3` and either `uv` or `python3-venv`
-- `jq`
-- `espeak-ng` — Kokoro uses it for phonemes
-- An audio player: `paplay` (PipeWire/PulseAudio), `aplay`, `ffplay`, or `sox`
-- Optional: `libnotify` (`notify-send`) for hold-mode notifications
-- Optional: `pactl` (pulseaudio-utils) — required by the meeting guard; without
-  it the guard silently does nothing
-- Optional: systemd — used to keep the daemon warm across reboots. Without it the
-  daemon starts on first use and stays up for the login session.
+| | Debian/Ubuntu | macOS |
+| --- | --- | --- |
+| Install with | `sudo apt install python3-venv jq espeak-ng libnotify-bin` | `brew install jq espeak-ng` |
+| Audio player | `paplay` (PipeWire/PulseAudio), usually already there | `afplay`, built in |
+| Notifications | `notify-send` (libnotify) | `osascript`, built in |
+| Meeting guard | works, via `pactl` | **unavailable** — no `pactl`, so the guard stays inert |
+| Daemon | systemd user service, warm across reboots | starts on demand, stays up for the login session |
 
-Debian/Ubuntu:
+`python3` is required either way, plus `uv` or `python3-venv` to build the
+virtualenv. `espeak-ng` is what Kokoro uses for phonemes.
 
-```bash
-sudo apt install python3-venv jq espeak-ng libnotify-bin
-```
+The installer checks all of this and stops if no audio player is present —
+finding that out after a 338 MB download would be a poor way to learn it.
+
+On macOS, `afplay` only plays files rather than a stream, so each sentence is
+written to a short temporary wav and played to completion. Speech still starts
+after the first sentence; it just is not one continuous pipe. Installing
+`ffmpeg` or `sox` switches it to the streaming path.
 
 Without the model installed, claude-speak falls back to `spd-say` / `espeak-ng`
 (Linux) or `say` (macOS). It works immediately; it just sounds robotic until you
@@ -180,8 +196,9 @@ Claude finishes a reply
         ▼
   Daemon     scripts/kokorod.py           model stays warm; synthesizes chunk by
         │                                 chunk and streams straight to the player
+        │    scripts/csaudio.py           picks the player and the way to feed it
         ▼
-  paplay / aplay / ffplay
+  paplay / aplay / ffplay / sox — or afplay, a wav at a time, on macOS
 ```
 
 The hook never blocks your session: it hands the text off and exits. If anything
