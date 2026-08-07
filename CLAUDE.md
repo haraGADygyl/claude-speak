@@ -84,6 +84,20 @@ Adding a user-visible command touches four places:
 3. `README.md` — the Controls table
 4. `.claude-plugin/plugin.json` — **bump `version` in the same commit.** Every release so far has done this: minor for a feature, patch for a fix
 
+## Releasing
+
+The version bump *is* the release. After pushing it, tag:
+
+```bash
+claude plugin tag -m "claude-speak %s — <one line>" --push
+```
+
+That creates `claude-speak--v<version>` at HEAD and refuses to run unless `plugin.json` and the marketplace entry agree — which is the check worth having, since the two are edited separately. `--dry-run` shows what it would do.
+
+Tags run back to 0.1.0. Each marks the last commit carrying that version, except `v0.3.0`, cut at `f7888ac`: the three commits after it shipped the `read` feature without a bump, so they belong to the 0.4.0 range.
+
+Ship the update with `claude plugin update claude-speak@claude-speak` — the bare name is not enough, and a session restart is needed to load it.
+
 ## Commit style
 
 Conventional Commits, enforced by `.githooks/commit-msg`. Enable it once per clone — git does not version-control `.git/hooks`:
