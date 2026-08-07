@@ -4,7 +4,7 @@
 set -uo pipefail
 
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN="$(cd "$SCRIPTS/../bin" && pwd)"
+BIN="$(cd "$SCRIPTS/../bin" 2>/dev/null && pwd || true)"
 DATA="${CLAUDE_SPEAK_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-speak}"
 CFG="${CLAUDE_SPEAK_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-speak/config.json}"
 MODELS="$DATA/models"
@@ -16,24 +16,59 @@ warn() { printf '\033[33m warn:\033[0m %s\n' "$*"; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- prereqs ---
+# Deliberately short. jq is gone (csconfig.py does the JSON), and espeak-ng is
+# not needed either: kokoro-onnx pulls in espeakng-loader, which ships its own
+# libespeak-ng and voice data into the venv. What is left is an audio player.
 say "Checking prerequisites"
-case "$(uname -s)" in
-  Darwin) PKG="brew install" ;;
-  *)      PKG="sudo apt install" ;;
-esac
 
-command -v jq >/dev/null || warn "jq not found — $PKG jq, or the CLI won't run"
-command -v espeak-ng >/dev/null || command -v espeak >/dev/null \
-  || warn "espeak-ng not found — Kokoro needs it for phonemes ($PKG espeak-ng)"
+MACOS=""; [[ "$(uname -s)" == "Darwin" ]] && MACOS=1
 
-# Fatal, unlike the others: without a player the daemon cannot make a sound,
-# and finding that out after a 338 MB download is a poor way to learn it.
-# afplay ships with macOS, so this only ever bites on a bare Linux box.
-command -v paplay >/dev/null || command -v aplay >/dev/null \
-  || command -v ffplay >/dev/null || command -v play >/dev/null \
-  || command -v afplay >/dev/null \
-  || die "no audio player found — $PKG $(
-       [[ "$PKG" == brew* ]] && echo ffmpeg || echo 'pipewire-audio-client-libraries (or alsa-utils, ffmpeg, sox)')"
+have_player() {
+  local p
+  for p in paplay pw-play aplay ffplay play afplay; do
+    command -v "$p" >/dev/null && return 0
+  done
+  return 1
+}
+
+# Offer rather than assume: installing system packages needs root on Linux, and
+# a TTS plugin reaching for sudo unasked is not a thing to do quietly. With no
+# terminal to ask at — /speak install runs without one — just print the command.
+offer_install() {   # offer_install <what it is for> <package...>
+  local why="$1"; shift
+  local cmd
+  if [[ -n "$MACOS" ]]; then
+    command -v brew >/dev/null || { warn "$why — install Homebrew, then: brew install $*"; return 1; }
+    cmd="brew install $*"
+  else
+    command -v apt-get >/dev/null || { warn "$why — install with your package manager: $*"; return 1; }
+    cmd="sudo apt install -y $*"
+  fi
+
+  if [[ ! -t 0 ]]; then
+    warn "$why — run: $cmd"
+    return 1
+  fi
+  printf '  %s\n  run "%s" now? [y/N] ' "$why" "$cmd"
+  local answer; read -r answer
+  case "$answer" in
+    [yY]*) $cmd && return 0 || { warn "that did not work — run it yourself: $cmd"; return 1; } ;;
+    *)     warn "skipped — run it yourself: $cmd"; return 1 ;;
+  esac
+}
+
+if ! have_player; then
+  if [[ -n "$MACOS" ]]; then
+    die "no audio player found, which should be impossible on macOS (afplay is built in)"
+  fi
+  offer_install "no audio player, so nothing can be heard" pulseaudio-utils
+  # Fatal if still missing: the daemon cannot make a sound without one, and
+  # finding that out after a 338 MB download is a poor way to learn it.
+  have_player || die "no audio player — install one of: pulseaudio-utils, pipewire-bin, alsa-utils, ffmpeg, sox"
+fi
+
+command -v notify-send >/dev/null || [[ -n "$MACOS" ]] \
+  || warn "notify-send not found — hold-mode notifications will be silent (sudo apt install libnotify-bin)"
 
 PYBOOT=""
 for c in uv python3; do command -v "$c" >/dev/null && { PYBOOT="$c"; break; }; done
@@ -74,37 +109,12 @@ fetch "$RELEASE/kokoro-v1.0.onnx" "$MODELS/kokoro-v1.0.onnx" "311 MB"
 fetch "$RELEASE/voices-v1.0.bin"  "$MODELS/voices-v1.0.bin"  "27 MB"
 
 # ---------------------------------------------------------------- config ----
-if [[ ! -f "$CFG" ]]; then
-  mkdir -p "$(dirname "$CFG")"
-  # Carry over settings from a hand-rolled install, if the user had one.
-  if [[ -f "$HOME/.claude/speak.json" ]] && command -v jq >/dev/null; then
-    say "Importing settings from ~/.claude/speak.json"
-    jq '{enabled, engine, voice: (.kokoroVoice // .voice // "af_heart"),
-         speed: (.kokoroSpeed // .speed // 1.0), maxChars, announceCode,
-         shortenPaths, multiSession, holdReplies, notify}' \
-       "$HOME/.claude/speak.json" >"$CFG" 2>/dev/null || rm -f "$CFG"
-  fi
-  [[ -f "$CFG" ]] || cat >"$CFG" <<'JSON'
-{
-  "enabled": true,
-  "engine": "auto",
-  "voice": "af_heart",
-  "speed": 1.0,
-  "maxChars": 2500,
-  "announceCode": true,
-  "shortenPaths": true,
-  "multiSession": "queue",
-  "holdReplies": true,
-  "notify": true,
-  "holdSound": "",
-  "meetingGuard": true,
-  "meetingGuardIgnore": [],
-  "fallbackRate": 25,
-  "fallbackVoice": "female1"
-}
-JSON
-  say "Wrote config to $CFG"
-fi
+# One place defines the defaults — cstext.DEFAULTS — and csconfig.py writes
+# them out, carrying over a hand-rolled ~/.claude/speak.json if one exists.
+had_cfg=""; [[ -f "$CFG" ]] && had_cfg=1
+python3 "$SCRIPTS/csconfig.py" config ensure \
+  && say "$([[ -n "$had_cfg" ]] && echo "Config topped up at $CFG" || echo "Wrote config to $CFG")" \
+  || warn "could not write $CFG"
 
 # ------------------------------------------------------------------ link ----
 # Nothing else puts claude-speak on PATH, so a fresh install had a CLI you
@@ -112,7 +122,9 @@ fi
 # hence a symlink rather than a copy.
 BINDIR="$HOME/.local/bin"
 LINK="$BINDIR/claude-speak"
-if [[ -e "$LINK" || -L "$LINK" ]]; then
+if [[ ! -x "$BIN/claude-speak" ]]; then
+  warn "cannot find bin/claude-speak next to $SCRIPTS — skipping the PATH link"
+elif [[ -e "$LINK" || -L "$LINK" ]]; then
   if [[ "$(readlink "$LINK" 2>/dev/null)" == "$BIN/claude-speak" ]]; then
     say "claude-speak already linked into $BINDIR"
   else
@@ -163,7 +175,7 @@ fi
 
 # ------------------------------------------------------------------ done ----
 say "Testing"
-python3 "$SCRIPTS/say.py" --voice "$( command -v jq >/dev/null && jq -r .voice "$CFG" || echo af_heart )" \
+python3 "$SCRIPTS/say.py" --voice "$(python3 "$SCRIPTS/csconfig.py" config get voice)" \
   "Claude speak is installed. This is the voice your replies will use when you play them."
 
 cat <<'DONE'

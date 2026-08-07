@@ -9,16 +9,6 @@ model, and it starts talking before the whole reply has finished rendering.
 Built for people who'd rather listen than read a wall of text — and for anyone
 whose eyes are done for the day.
 
-First the system packages, which the installer checks for but will not install
-for you:
-
-```bash
-sudo apt install python3-venv jq espeak-ng libnotify-bin      # Debian/Ubuntu
-brew install jq espeak-ng                                     # macOS
-```
-
-Then, in Claude Code:
-
 ```
 /plugin marketplace add haraGADygyl/claude-speak
 /plugin install claude-speak
@@ -154,26 +144,32 @@ shell command without a model round trip, which matters when you want silence
 
 ## Requirements
 
-Linux is the tested platform; macOS is supported but less exercised.
+**`python3` and an audio player.** That is the whole list, and most machines
+already have both.
+
+Everything else lives in the plugin's own virtualenv: `kokoro-onnx` brings
+`espeakng-loader`, which ships its own `libespeak-ng` and voice data, so
+there is no system `espeak-ng` to install. The CLI does its own JSON, so there
+is no `jq` either.
 
 | | Debian/Ubuntu | macOS |
 | --- | --- | --- |
-| Install with | `sudo apt install python3-venv jq espeak-ng libnotify-bin` | `brew install jq espeak-ng` |
-| Audio player | `paplay` (PipeWire/PulseAudio), usually already there | `afplay`, built in |
-| Notifications | `notify-send` (libnotify) | `osascript`, built in |
-| Meeting guard | works, via `pactl` | **unavailable** — no `pactl`, so the guard stays inert |
+| Audio player | `paplay`, `pw-play`, `aplay`, `ffplay` or `sox` — a desktop install almost always has one | `afplay`, built in |
+| If none | the installer offers to `apt install pulseaudio-utils` | cannot happen |
+| Virtualenv | `uv`, or `python3-venv` | `python3` is enough |
+| Notifications | `notify-send` (`libnotify-bin`), optional | `osascript`, built in |
+| Meeting guard | works, via `pactl` | **unavailable** — no `pactl`, so the guard stays inert and hold mode is the protection |
 | Daemon | systemd user service, warm across reboots | starts on demand, stays up for the login session |
 
-`python3` is required either way, plus `uv` or `python3-venv` to build the
-virtualenv. `espeak-ng` is what Kokoro uses for phonemes.
+The installer checks for a player before downloading anything, and offers to
+install one when it is run from a terminal. It never installs packages without
+asking — on Linux that needs root, and a text-to-speech plugin reaching for
+`sudo` unprompted is not a thing that should happen quietly.
 
-The installer checks all of this and stops if no audio player is present —
-finding that out after a 338 MB download would be a poor way to learn it.
-
-On macOS, `afplay` only plays files rather than a stream, so each sentence is
-written to a short temporary wav and played to completion. Speech still starts
-after the first sentence; it just is not one continuous pipe. Installing
-`ffmpeg` or `sox` switches it to the streaming path.
+On macOS, `afplay` plays files rather than a stream, so each sentence becomes a
+short temporary wav played to completion. Speech still starts after the first
+sentence; it just is not one continuous pipe. `ffmpeg` or `sox` switches it to
+the streaming path, but neither is needed.
 
 Without the model installed, claude-speak falls back to `spd-say` / `espeak-ng`
 (Linux) or `say` (macOS). It works immediately; it just sounds robotic until you

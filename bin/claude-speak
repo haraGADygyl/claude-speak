@@ -50,46 +50,15 @@ HELD="$DATA/held.jsonl"
 VENV_PY="$DATA/venv/bin/python"
 SAY=(python3 "$SCRIPTS/say.py")
 
-need_jq() {
-  command -v jq >/dev/null || { echo "claude-speak needs 'jq' installed" >&2; exit 1; }
-}
+# All JSON goes through csconfig.py rather than jq. python3 is required by the
+# rest of the plugin anyway, so this is one less system package to install —
+# and it leaves cstext.DEFAULTS as the only place the defaults are written.
+CS=(python3 "$SCRIPTS/csconfig.py")
 
-read -r -d '' DEFAULT_CFG <<'JSON'
-{
-  "enabled": true,
-  "engine": "auto",
-  "voice": "af_heart",
-  "speed": 1.0,
-  "maxChars": 2500,
-  "announceCode": true,
-  "shortenPaths": true,
-  "multiSession": "queue",
-  "holdReplies": true,
-  "notify": true,
-  "holdSound": "",
-  "meetingGuard": true,
-  "meetingGuardIgnore": [],
-  "fallbackRate": 25,
-  "fallbackVoice": "female1"
-}
-JSON
-
-ensure_cfg() {
-  mkdir -p "$(dirname "$CFG")"
-  if [[ ! -f "$CFG" ]]; then
-    printf '%s\n' "$DEFAULT_CFG" >"$CFG"
-    return
-  fi
-  # Fill in keys added by newer versions without touching the user's choices:
-  # `$d * .` merges defaults underneath whatever is already set.
-  command -v jq >/dev/null || return
-  if [[ -n "$(jq --argjson d "$DEFAULT_CFG" -r '($d | keys) - (. | keys) | .[]' "$CFG" 2>/dev/null)" ]]; then
-    tmp=$(mktemp) && jq --argjson d "$DEFAULT_CFG" '$d * .' "$CFG" >"$tmp" && mv "$tmp" "$CFG"
-  fi
-}
-
-set_key() { need_jq; tmp=$(mktemp) && jq "$1" "$CFG" >"$tmp" && mv "$tmp" "$CFG"; }
-get()     { need_jq; jq -r "$1" "$CFG"; }
+ensure_cfg() { "${CS[@]}" config ensure; }
+set_key()    { "${CS[@]}" config set "$1" "$2"; }
+get()        { "${CS[@]}" config get "$1"; }
+held()       { "${CS[@]}" held "$@"; }
 
 # Which project a play/clear/pending applies to. No argument means "the one
 # this terminal is in" — the hook labels replies by the session's directory
@@ -102,25 +71,16 @@ scope() {
   esac
 }
 
-waiting_by_project() {
-  jq -r '.label' "$HELD" | sort | uniq -c | awk '{printf "  %s (%s waiting)\n", $2, $1}'
-}
+waiting_by_project() { held labels; }
 
-drop_played() {  # drop_played <label|"" for all>
-  if [[ -n "$1" ]]; then
-    tmp=$(mktemp) && jq -c --arg w "$1" 'select(.label != $w)' "$HELD" >"$tmp" && mv "$tmp" "$HELD"
-  else
-    : > "$HELD"
-  fi
-}
+drop_played() { held drop "$1"; }   # empty label means every project
 
 kokoro_ready() {
   [[ -x "$VENV_PY" && -f "$DATA/models/kokoro-v1.0.onnx" && -f "$DATA/models/voices-v1.0.bin" ]]
 }
 
 status() {
-  need_jq
-  jq '{enabled, engine, voice, speed, maxChars, multiSession, holdReplies, holdSound, meetingGuard, notify}' "$CFG"
+  "${CS[@]}" config summary
   if kokoro_ready; then
     printf 'engine:  kokoro (neural, local)\n'
   else
@@ -142,27 +102,27 @@ ensure_cfg
 case "${1:-status}" in
   install) exec bash "$SCRIPTS/install.sh" "${@:2}" ;;
 
-  on)   set_key '.enabled = true';  echo "claude-speak: on" ;;
-  off)  set_key '.enabled = false'; "${SAY[@]}" --stop 2>/dev/null; echo "claude-speak: off" ;;
+  on)   set_key enabled "true";  echo "claude-speak: on" ;;
+  off)  set_key enabled "false"; "${SAY[@]}" --stop 2>/dev/null; echo "claude-speak: off" ;;
   stop) "${SAY[@]}" --stop 2>/dev/null; spd-say -C 2>/dev/null; pkill -x say 2>/dev/null
         echo "silenced" ;;
 
   voice)
     v="${2:?usage: claude-speak voice af_bella}"
-    set_key ".voice = \"$v\""
-    "${SAY[@]}" --voice "$v" --speed "$(get .speed)" \
+    set_key voice "\"$v\""
+    "${SAY[@]}" --voice "$v" --speed "$(get speed)" \
       "This is ${v//_/ }. I will read your replies in this voice from now on."
     ;;
   speed)
-    set_key ".speed = ${2:?usage: claude-speak speed 1.2}"; echo "speed: $2"
-    "${SAY[@]}" --voice "$(get .voice)" --speed "$2" "This is the new speaking speed."
+    set_key speed "${2:?usage: claude-speak speed 1.2}"; echo "speed: $2"
+    "${SAY[@]}" --voice "$(get voice)" --speed "$2" "This is the new speaking speed."
     ;;
-  max) set_key ".maxChars = ${2:?usage: claude-speak max 4000}"; echo "maxChars: $2" ;;
+  max) set_key maxChars "${2:?usage: claude-speak max 4000}"; echo "maxChars: $2" ;;
 
   mode)
     m="${2:?usage: claude-speak mode queue|interrupt|drop}"
     case "$m" in queue|interrupt|drop) ;; *) echo "mode must be queue, interrupt or drop"; exit 2 ;; esac
-    set_key ".multiSession = \"$m\""
+    set_key multiSession "\"$m\""
     case "$m" in
       queue)     echo "mode: queue — other terminals wait their turn, announced by project" ;;
       interrupt) echo "mode: interrupt — the newest reply cuts off whatever is speaking" ;;
@@ -174,21 +134,21 @@ case "${1:-status}" in
 
   hold)
     case "${2:-}" in
-      on)  set_key '.holdReplies = true'
+      on)  set_key holdReplies "true"
            echo "hold: on — replies are stashed and announced; play them with: claude-speak play" ;;
-      off) set_key '.holdReplies = false'; echo "hold: off — replies are spoken as they finish" ;;
-      *)   printf 'hold is %s\n' "$([ "$(get .holdReplies)" = "true" ] && echo on || echo off)" ;;
+      off) set_key holdReplies "false"; echo "hold: off — replies are spoken as they finish" ;;
+      *)   printf 'hold is %s\n' "$([ "$(get holdReplies)" = "true" ] && echo on || echo off)" ;;
     esac
     ;;
 
   guard)
     case "${2:-}" in
-      on)  set_key '.meetingGuard = true'
+      on)  set_key meetingGuard "true"
            echo "meeting guard: on — nothing is spoken while your microphone is in use" ;;
-      off) set_key '.meetingGuard = false'
+      off) set_key meetingGuard "false"
            echo "meeting guard: off — replies may be spoken during calls" ;;
       test|"")
-        if [[ "$(get .meetingGuard)" != "true" ]]; then echo "meeting guard: off"; exit 0; fi
+        if [[ "$(get meetingGuard)" != "true" ]]; then echo "meeting guard: off"; exit 0; fi
         apps=$(pactl list source-outputs 2>/dev/null \
                | grep -oP 'application\.name = "\K[^"]*' | sort -u | paste -sd', ')
         if [[ -n "$apps" ]]; then
@@ -203,12 +163,12 @@ case "${1:-status}" in
 
   sound)
     case "${2:-}" in
-      "")  v=$(get .holdSound); [[ -z "$v" || "$v" == "null" ]] && v="(system default)"; printf 'hold sound: %s\n' "$v" ;;
-      off) set_key '.holdSound = "off"'; echo "hold sound: off — silent notification only" ;;
-      default) set_key '.holdSound = ""'; echo "hold sound: system default" ;;
+      "")  v=$(get holdSound); [[ -z "$v" || "$v" == "null" ]] && v="(system default)"; printf 'hold sound: %s\n' "$v" ;;
+      off) set_key holdSound "off"; echo "hold sound: off — silent notification only" ;;
+      default) set_key holdSound ""; echo "hold sound: system default" ;;
       *)
         [[ -f "$2" ]] || { echo "no such file: $2"; exit 2; }
-        set_key ".holdSound = \"$2\""; echo "hold sound: $2"
+        set_key holdSound "\"$2\""; echo "hold sound: $2"
         paplay "$2" 2>/dev/null || aplay -q "$2" 2>/dev/null
         ;;
     esac
@@ -216,12 +176,10 @@ case "${1:-status}" in
 
   pending)
     [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
-    need_jq
     here="$(basename "$PWD")"
-    jq -r --arg here "$here" \
-      '(if .label == $here then " *" else "  " end) + " \(.label): \(.text[0:66])…"' "$HELD"
-    total=$(grep -c . "$HELD")
-    mine=$(jq -rs --arg here "$here" 'map(select(.label == $here)) | length' "$HELD")
+    held pending "$here"
+    total=$(held count)
+    mine=$(held count "$here")
     printf '\n%s waiting, %s from this terminal (*)\n' "$total" "$mine"
     if [[ "$mine" == "0" ]]; then
       echo "  claude-speak play all        hear everything"
@@ -233,10 +191,9 @@ case "${1:-status}" in
 
   play)
     [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
-    need_jq
     want="$(scope "${2:-}")"
 
-    n=$(jq -rs --arg w "$want" 'map(select($w == "" or .label == $w)) | length' "$HELD")
+    n=$(held count "$want")
     if [[ "$n" == "0" ]]; then
       echo "nothing waiting for ${want}"
       echo "waiting elsewhere:"; waiting_by_project
@@ -244,29 +201,21 @@ case "${1:-status}" in
       exit 0
     fi
 
-    # Name the project only when more than one is being read — announcing a
-    # single project back to you in its own terminal is just noise.
-    multi=$(jq -rs --arg w "$want" \
-      'map(select($w == "" or .label == $w)) | map(.label) | unique | length' "$HELD")
-    # Oldest first, sent as ONE job so the daemon reads it straight through
-    # instead of each entry cancelling the last.
-    text=$(jq -rs --arg w "$want" --argjson multi "$multi" '
-      map(select($w == "" or .label == $w))
-      | sort_by(.ts)
-      | map((if $multi > 1 then "From \(.label | gsub("[-_]"; " ")). " else "" end) + .text)
-      | join(" ")' "$HELD")
+    # Oldest first, as ONE job so the daemon reads it straight through instead
+    # of each entry cancelling the last. The project is named only when more
+    # than one is being read — announcing a single one back to you is noise.
+    text=$(held text "$want")
 
     drop_played "$want"
     "${SAY[@]}" --session held-playback --label "" \
-      --voice "$(get .voice)" --speed "$(get .speed)" "$text"
+      --voice "$(get voice)" --speed "$(get speed)" "$text"
     printf 'playing %s reply(ies)%s\n' "$n" "${want:+ from $want}"
     ;;
 
   clear)
     [[ -s "$HELD" ]] || { echo "nothing waiting"; exit 0; }
-    need_jq
     want="$(scope "${2:-}")"
-    n=$(jq -rs --arg w "$want" 'map(select($w == "" or .label == $w)) | length' "$HELD")
+    n=$(held count "$want")
     [[ "$n" == "0" ]] && { echo "nothing waiting for ${want}"; exit 0; }
     drop_played "$want"
     printf 'discarded %s reply(ies)%s\n' "$n" "${want:+ from $want}"
@@ -307,7 +256,7 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     text=$(python3 "$SCRIPTS/cstext.py" "$f") || exit 1
     [[ -n "${text//[[:space:]]/}" ]] || { echo "nothing to read in $f"; exit 0; }
 
-    speed=$(get .speed)
+    speed=$(get speed)
     # ~14 characters a second at 1.0x — enough of an estimate to warn you before
     # a whole README starts talking. No cap: you asked for this file, not a
     # sample of it, and "claude-speak stop" ends it early.
@@ -318,13 +267,13 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     # A fixed session id means a second "read" replaces the first instead of
     # queueing behind it, and piping sidesteps the argv limit on big files.
     printf '%s' "$text" | "${SAY[@]}" --session read-file --label "" \
-      --voice "$(get .voice)" --speed "$speed"
+      --voice "$(get voice)" --speed "$speed"
     printf 'reading %s — %s chars, about %s. Stop with: claude-speak stop\n' \
       "$([[ "$f" == "-" ]] && echo "stdin" || basename "$f")" "${#text}" "$est"
     ;;
 
   test)
-    "${SAY[@]}" --voice "$(get .voice)" --speed "$(get .speed)" \
+    "${SAY[@]}" --voice "$(get voice)" --speed "$(get speed)" \
       "This is how Claude Code will sound when it reads a reply aloud. I fixed the import in parser dot pi, line forty two, and the tests pass."
     ;;
 

@@ -25,6 +25,10 @@ def stream_cmd(rate):
     if shutil.which("paplay"):
         return ["paplay", "--raw", "--format=s16le",
                 "--rate=%d" % rate, "--channels=1", "--client-name=ClaudeSpeak"]
+    if shutil.which("pw-play"):
+        # Ships with PipeWire itself, unlike paplay, which needs a separate
+        # pulseaudio-utils package that plenty of desktops do not install.
+        return ["pw-play", "--format=s16", "--rate=%d" % rate, "--channels=1", "-"]
     if shutil.which("aplay"):
         return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(rate), "-c", "1"]
     if shutil.which("ffplay"):

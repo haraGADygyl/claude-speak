@@ -26,7 +26,7 @@ No build, no linter, no CI. The tests need nothing installed and play no audio.
 
 | Runs under | Files | May import |
 | --- | --- | --- |
-| System `python3` | `speak-hook.py`, `say.py`, `cstext.py`, `cspaths.py` | **stdlib only** |
+| System `python3` | `speak-hook.py`, `say.py`, `cstext.py`, `cspaths.py`, `csconfig.py`, `csaudio.py` | **stdlib only** |
 | Venv `$DATA/venv/bin/python` | `kokorod.py`, `audition.py` | `numpy`, `kokoro_onnx` |
 
 The Stop hook runs under whatever `python3` Claude Code happens to have and cannot see the venv. A third-party import anywhere in the first row breaks speech for every user — silently, for the reason below.
@@ -55,13 +55,15 @@ Set those two env vars for anything that writes state. Without them you scribble
 
 `cspaths.py` is the only place paths are defined. Runtime state sits in `~/.local/share/claude-speak/` and `~/.config/claude-speak/` deliberately: a plugin update replaces the plugin directory, and the 338 MB model has to survive that.
 
-## Adding a config setting means editing three files
+## Adding a config setting means editing one file
 
-Defaults are spelled out in `scripts/cstext.py` (`DEFAULTS`), `bin/claude-speak` (`DEFAULT_CFG` heredoc) and `scripts/install.sh` (the heredoc that writes a fresh config). All three need the new key.
+`DEFAULTS` in `scripts/cstext.py`, and nothing else. `scripts/csconfig.py` writes it out, and `ensure_cfg` in `bin/claude-speak` runs `csconfig.py config ensure` on every invocation, so an upgrade adds new keys without touching choices the user already made.
 
-Only the Python copy is a fallback; the heredocs are what actually reaches a user's `config.json`. A key missing from them can never appear in a config file — which is how `fallbackRate` and `fallbackVoice` stayed absent for four releases. `DefaultsAgree` in the tests compares all three, so the drift cannot recur silently.
+It used to be three files — the Python dict plus a `DEFAULT_CFG` heredoc in `bin/claude-speak` and another in `install.sh` — and they drifted, which is how `fallbackRate` and `fallbackVoice` stayed absent for four releases. `NoDuplicateDefaults` in the tests fails if a JSON heredoc reappears in either shell file.
 
-`ensure_cfg` in `bin/claude-speak` merges new keys into an existing config with `jq '$d * .'` on any invocation, so an upgrade adds them without touching choices the user already made.
+## The shell shells out for JSON
+
+`bin/claude-speak` uses no `jq`. Every read, write and held-reply query goes through `scripts/csconfig.py` (`config get|set|ensure|summary`, `held count|labels|pending|text|drop`). python3 is a hard dependency of the plugin already, so this removed a system package rather than adding one. `NoDuplicateDefaults.test_the_shell_does_not_need_jq` keeps it that way.
 
 ## Behaviour that looks like a bug but is deliberate
 
