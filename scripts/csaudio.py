@@ -32,8 +32,11 @@ def stream_cmd(rate):
     if shutil.which("aplay"):
         return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(rate), "-c", "1"]
     if shutil.which("ffplay"):
+        # No channel flag: ffplay 7 removed -ac, ffplay 4 does not know
+        # -ch_layout, and the raw-pcm demuxer defaults to mono on every
+        # version. Naming a channel count here breaks one end or the other.
         return ["ffplay", "-loglevel", "quiet", "-nodisp", "-autoexit",
-                "-f", "s16le", "-ar", str(rate), "-ac", "1", "-"]
+                "-f", "s16le", "-ar", str(rate), "-"]
     if shutil.which("sox"):
         return ["play", "-q", "-t", "raw", "-r", str(rate), "-e", "signed",
                 "-b", "16", "-c", "1", "-"]

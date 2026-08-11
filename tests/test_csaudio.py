@@ -74,6 +74,17 @@ class PlayerSelection(unittest.TestCase):
         self.only("afplay")
         self.assertIsNone(csaudio.stream_cmd(RATE))
 
+    def test_ffplay_names_no_channel_count(self):
+        # ffplay 7 removed -ac — the player exits with "Option not found",
+        # the daemon reads the broken pipe as the reply being cancelled, and
+        # the result is pure silence. Older ffplay lacks -ch_layout, the
+        # replacement. The raw-pcm demuxer defaults to mono everywhere, so
+        # the command must name no channel count at all.
+        self.only("ffplay")
+        cmd = csaudio.stream_cmd(RATE)
+        self.assertNotIn("-ac", cmd)
+        self.assertNotIn("-ch_layout", cmd)
+
     def test_bare_machine(self):
         self.only()
         self.assertIsNone(csaudio.stream_cmd(RATE))
