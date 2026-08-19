@@ -71,9 +71,9 @@ claude-speak voice bm_george
 ```
 
 **It starts immediately.** A warm daemon keeps the model loaded, so there's no
-2-second stall while something boots. Long replies are synthesized sentence by
-sentence and start playing after the first one — roughly 30 ms from reply to
-first audio.
+2-second stall while something boots. The hook hands the reply off in about
+30 ms and never blocks your session; long replies are then synthesized sentence
+by sentence, and playback starts after the first one.
 
 **It reads prose, not punctuation.** Code blocks become *"Code block"* instead of
 sixty seconds of syntax. `src/api/parser.py:42` becomes *"parser.py line 42"*.
@@ -124,6 +124,7 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `voice af_bella` | Switch voice (and preview it) |
 | `voices` | List all 54 |
 | `audition` | Play the 10 best English voices back to back |
+| `test` | Speak a sample line in the current voice |
 | `max 4000` | Characters read per reply before it stops |
 | `hold on` / `off` | Stash replies (default) or speak them as they finish |
 | `guard on` / `off` / `test` | Never speak while your microphone is in use |
@@ -135,6 +136,7 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `queue` | What's speaking and what's waiting |
 | `status` | Current settings |
 | `restart` / `log` | Daemon control |
+| `install` | Fetch the neural voice model — one time |
 
 Inside Claude Code, `! claude-speak stop` is instant — the `!` prefix runs the
 shell command without a model round trip, which matters when you want silence
@@ -194,7 +196,7 @@ Claude finishes a reply
         │                                 chunk and streams straight to the player
         │    scripts/csaudio.py           picks the player and the way to feed it
         ▼
-  paplay / aplay / ffplay / sox — or afplay, a wav at a time, on macOS
+  paplay / pw-play / aplay / ffplay / sox — or afplay, one wav at a time, on macOS
 ```
 
 The hook never blocks your session: it hands the text off and exits. If anything

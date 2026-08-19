@@ -53,8 +53,8 @@ def available():
     return stream_cmd(22050) is not None or file_player() is not None
 
 
-NO_PLAYER = ("no audio player found — install pipewire-utils, alsa-utils, "
-             "ffmpeg or sox (macOS has afplay already)")
+NO_PLAYER = ("no audio player found — install pulseaudio-utils, pipewire-bin, "
+             "alsa-utils, ffmpeg or sox (macOS has afplay already)")
 
 
 def wav_bytes(pcm, rate):

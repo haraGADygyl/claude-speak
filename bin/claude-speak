@@ -2,7 +2,7 @@
 # claude-speak — control Claude Code's spoken replies.
 #
 #   claude-speak install         download the neural voice model (one time)
-#   claude-speak                 show current settings
+#   claude-speak [status]        show current settings
 #   claude-speak on | off        toggle reading replies aloud
 #   claude-speak stop            shut up right now
 #   claude-speak test            speak a sample line
@@ -27,7 +27,7 @@
 #   claude-speak clear [all|project]  discard what is waiting
 #   claude-speak hold off | on   auto-speak replies, or hold them
 #   claude-speak sound <file>    ding when a reply lands (off | default | path)
-#   claude-speak guard test      meeting guard: never speak while the mic is live
+#   claude-speak guard on|off|test  meeting guard: mic live = silence
 set -uo pipefail
 
 # Resolve symlinks so this works when linked into ~/.local/bin. Done by hand

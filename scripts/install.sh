@@ -185,7 +185,8 @@ Done. Useful commands:
 Replies are HELD by default -- you get a ding and a notification, and
 hear them when you ask:
 
-  claude-speak play         read everything waiting, oldest first
+  claude-speak play         read this terminal's replies, oldest first
+  claude-speak play all     read every project's
   claude-speak hold off     or have replies spoken automatically
 
 Even with auto-speak on, nothing is spoken while your microphone is in

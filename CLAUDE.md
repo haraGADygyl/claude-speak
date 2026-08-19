@@ -9,7 +9,7 @@ A Claude Code plugin that reads Claude's replies aloud using a local neural TTS 
 ## Commands
 
 ```bash
-python3 -m unittest discover tests                      # everything (~0.2s)
+python3 -m unittest discover tests                      # everything (~1.5s)
 python3 -m unittest tests.test_cstext.ShortenPaths      # one class
 python3 -m unittest tests.test_cstext.Clean.test_lists_become_sentences   # one test
 
@@ -20,7 +20,7 @@ claude-speak restart | log | queue       # daemon control
 
 No build, no linter, no CI. The tests need nothing installed and play no audio.
 
-**Most other commands make real noise on the user's machine.** `claude-speak test|read|play|voice|audition` and `say.py` all synthesize and play. Prefer `scripts/cstext.py` or the tests when verifying changes. To exercise the socket path without audio, bind a stub listener at `$XDG_RUNTIME_DIR/claude-speak.sock` — AF_UNIX paths cap near 108 bytes, so a deep scratchpad directory will fail to bind; use a short `/tmp` path.
+**Most other commands make real noise on the user's machine.** `claude-speak test|read|play|voice|speed|audition|install` and `say.py` all synthesize and play, and `claude-speak sound <file>` plays the file you hand it. Prefer `scripts/cstext.py` or the tests when verifying changes. To exercise the socket path without audio, bind a stub listener at `$XDG_RUNTIME_DIR/claude-speak.sock` — AF_UNIX paths cap near 108 bytes, so a deep scratchpad directory will fail to bind; use a short `/tmp` path.
 
 ## Two Python runtimes — the constraint that shapes everything
 
@@ -38,7 +38,7 @@ Stop hook (hooks/hooks.json)
   → speak-hook.py    payload on stdin → cstext.clean() → hold or speak
   → say.py           unix-socket client, returns in ~30 ms
   → kokorod.py       warm model, sentence-chunked synthesis, streams PCM
-  → paplay / aplay / ffplay
+  → paplay / pw-play / aplay / ffplay / sox — or afplay a wav at a time (macOS)
 ```
 
 `speak-hook.py` wraps `main()` in a bare `except: pass` and always exits 0, because a broken hook must never break a Claude Code session. **Every failure is therefore invisible.** Debug by driving it directly:
@@ -59,6 +59,8 @@ Set those two env vars for anything that writes state. Without them you scribble
 
 `DEFAULTS` in `scripts/cstext.py`, and nothing else. `scripts/csconfig.py` writes it out, and `ensure_cfg` in `bin/claude-speak` runs `csconfig.py config ensure` on every invocation, so an upgrade adds new keys without touching choices the user already made.
 
+The one exception is display: `claude-speak status` prints the keys named in `SUMMARY_KEYS` in `scripts/csconfig.py`, so a new setting exists and is honoured without being listed there, but stays invisible in the status block until it is added.
+
 It used to be three files — the Python dict plus a `DEFAULT_CFG` heredoc in `bin/claude-speak` and another in `install.sh` — and they drifted, which is how `fallbackRate` and `fallbackVoice` stayed absent for four releases. `NoDuplicateDefaults` in the tests fails if a JSON heredoc reappears in either shell file.
 
 ## The shell shells out for JSON
@@ -71,6 +73,7 @@ It used to be three files — the Python dict plus a `DEFAULT_CFG` heredoc in `b
 - **The meeting guard outranks every other setting.** If `pactl list source-outputs` shows a recording stream, the reply is held with *no* sound at all — the ding is suppressed too.
 - **Hold scoping is by directory basename.** The hook labels each reply `basename(cwd)`; `play`/`clear`/`pending` default to that label, which is how one terminal reads back only its own project.
 - **Multi-session:** the same `session_id` interrupts itself (that reply is stale); a different session queues behind and is introduced as "From \<project\>".
+- **The spoken queue holds three.** `MAX_QUEUE` in `kokorod.py` caps waiting replies at 3 and drops the *oldest* beyond that, so a fourth terminal finishing during a long reply loses the first one. Held replies (`held.jsonl`) have no such cap — this applies only to speech in flight.
 
 ## The text cleaner is the fragile part
 
