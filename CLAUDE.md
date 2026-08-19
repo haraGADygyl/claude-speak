@@ -104,7 +104,7 @@ Any change here needs a case in `tests/test_cstext.py`, including the ones that 
 Adding a user-visible command touches four places:
 
 1. `bin/claude-speak` — the `case` branch, the header comment (which *is* the `--help` output, printed by awk up to the first non-comment line), and the unknown-option list
-2. `skills/speak/SKILL.md` — `argument-hint` and the valid-arguments line. This is the `/claude-speak:speak` slash command — Claude Code namespaces plugin commands as `<plugin>:<skill>`, so there is no bare `/speak`; it has `disable-model-invocation: true` and runs the binary via `!` frontmatter, so Claude's whole job is to report the result in one line
+2. `skills/speak/SKILL.md` — `argument-hint` and the valid-arguments line. This is the `/claude-speak:speak` slash command — Claude Code namespaces every plugin command as `<plugin>:<skill>`, and that full name is the only one that exists; it has `disable-model-invocation: true` and runs the binary via `!` frontmatter, so Claude's whole job is to report the result in one line
 3. `README.md` — the Controls table
 4. `.claude-plugin/plugin.json` — **bump `version` in the same commit.** Every release so far has done this: minor for a feature, patch for a fix
 
@@ -134,7 +134,7 @@ Two traps, both hit while backfilling the first seven:
 
 Tags run back to 0.1.0, each marking the last commit carrying that version — except `v0.3.0`, cut at `f7888ac`, because the three commits after it shipped the `read` feature without a bump and belong to the 0.4.0 range.
 
-A session restart is needed after step 3 for the Stop hook to pick up the new code.
+A session restart — or `/reload-plugins`, which reloads plugins, skills and hooks in place — is needed after step 3 for the Stop hook to pick up the new code. Nothing is needed after `claude-speak install`: the hook re-reads its config and re-checks for the model on every reply.
 
 ## Commit style
 

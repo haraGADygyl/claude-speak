@@ -14,20 +14,22 @@ whose eyes are done for the day.
 /plugin install claude-speak
 ```
 
-Restart Claude Code, then fetch the voice model (~338 MB) — once:
+Restart Claude Code — or run `/reload-plugins` — then fetch the voice model
+(~338 MB), once:
 
 ```
 /claude-speak:speak install
 ```
 
-Claude Code namespaces plugin commands, so the full name is
-`/claude-speak:speak` — typing `/speak` narrows the menu to it.
+Claude Code namespaces every plugin command as `<plugin>:<skill>`, which is
+why the name is that long one; the menu finds it as soon as you start typing.
 
 Use it rather than a shell for this first run: the installer is what puts
 `claude-speak` on your PATH, by linking it into `~/.local/bin`. After it
 finishes, `claude-speak …` and `/claude-speak:speak …` are interchangeable.
 
-Restart Claude Code once more so the Stop hook loads, and you're set.
+That is the whole setup. No second restart — the Stop hook loaded with the
+plugin, and it starts using the neural voice on the next reply.
 
 ## Quiet by default
 
