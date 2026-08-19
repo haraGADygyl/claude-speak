@@ -148,6 +148,54 @@ class UnitSync(Shell):
         self.assertIn("rc=1", out.stdout)
 
 
+class UnitRestart(Shell):
+    """Whether the daemon was restarted decides whether the CLI waits for it.
+
+    systemctl returns as soon as the process is exec'd, so a status check
+    straight afterwards reported a starting daemon as stopped. The distinct
+    code is what tells bin/claude-speak to wait for the socket — and only
+    then, so an unenabled unit costs nothing.
+    """
+
+    def fake_systemctl(self, is_enabled):
+        """A systemctl that records its calls instead of touching the real one."""
+        binned = os.path.join(self.dir, "fakebin")
+        os.makedirs(binned, exist_ok=True)
+        path = os.path.join(binned, "systemctl")
+        with open(path, "w") as fh:
+            fh.write("#!/usr/bin/env bash\n"
+                     'echo "$*" >> "%s"\n' % os.path.join(self.dir, "calls")
+                     + ("exit 0\n" if is_enabled else
+                        '[[ "$*" == *is-enabled* ]] && exit 1\nexit 0\n'))
+        os.chmod(path, 0o755)
+        return binned
+
+    def calls(self):
+        try:
+            with open(os.path.join(self.dir, "calls")) as fh:
+                return fh.read()
+        except OSError:
+            return ""
+
+    def sync(self, is_enabled):
+        unit = os.path.join(self.dir, "claude-speak.service")
+        subprocess.run(["bash", "-c", '. %s\ncs_unit_write "%s" /venv/py /old/scripts'
+                        % (HEAL, unit)], check=True)
+        env = dict(os.environ, PATH=self.fake_systemctl(is_enabled) + os.pathsep
+                   + os.environ["PATH"])
+        return subprocess.run(
+            ["bash", "-c", '. %s\ncs_unit_sync "%s" /venv/py /new/scripts; echo "rc=$?"'
+             % (HEAL, unit)], capture_output=True, text=True, env=env)
+
+    def test_restarted_when_the_service_is_enabled(self):
+        self.assertIn("rc=13", self.sync(True).stdout)
+        self.assertIn("restart claude-speak.service", self.calls())
+
+    def test_not_restarted_when_it_is_not_enabled(self):
+        self.assertIn("rc=10", self.sync(False).stdout)
+        self.assertNotIn("restart", self.calls())
+
+
 class Pointer(unittest.TestCase):
     """The Stop hook is the only part that always runs from the current copy."""
 

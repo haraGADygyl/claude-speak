@@ -68,6 +68,8 @@ The second is the one that bit: a systemd user who ran `claude plugin update` ke
 
 `scripts/csheal.sh` owns both, and `bin/claude-speak` calls it on every invocation. The direction of repair is the whole design: the Stop hook writes its own location to `$DATA/plugin-root` (it is the only part that always runs from the installed copy), and repairs go **towards that pointer, never towards the caller** — an out-of-date CLI fixing things to point at itself would pin the daemon to the release it came from. A link that is not ours is still left alone.
 
+When the repair restarts the daemon, the CLI waits for the socket to answer before going on — `systemctl restart` returns as soon as the process is exec'd, but Kokoro needs a second to map, and the `status` block a few lines later would otherwise report a healthy daemon as stopped. The wait is bounded at two seconds and only happens on the run that restarted it, which is why `cs_unit_sync` distinguishes 13 (rewritten and restarted) from 10 (rewritten).
+
 Inside Claude Code none of this matters: a plugin's `bin/` is added to the Bash tool's PATH automatically, always at the current version.
 
 ## Adding a config setting means editing one file

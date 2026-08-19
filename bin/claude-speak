@@ -72,7 +72,20 @@ heal() {
   scripts="$(cs_scripts_from_pointer "$POINTER")" || return 0
 
   cs_unit_sync "$UNIT" "$VENV_PY" "$scripts"; rc=$?
-  [[ "$rc" == 10 ]] && echo "claude-speak: daemon unit re-pointed at the installed version"
+  [[ "$rc" == 10 || "$rc" == 13 ]] \
+    && echo "claude-speak: daemon unit re-pointed at the installed version"
+
+  # systemctl returns once the process is exec'd, but the daemon only accepts
+  # on its socket after the model is mapped — a second or so. Without this,
+  # the status block below asks in that gap and reports a daemon that is
+  # starting perfectly well as "stopped". Two seconds at the outside, and
+  # only on the run that actually restarted it.
+  if [[ "$rc" == 13 ]]; then
+    for _ in {1..10}; do
+      "${SAY[@]}" --status >/dev/null 2>&1 && break
+      sleep 0.2
+    done
+  fi
 
   cs_link_sync "$HOME/.local/bin" "$scripts"; rc=$?
   [[ "$rc" == 11 ]] && echo "claude-speak: $HOME/.local/bin/claude-speak re-pointed at the installed version"

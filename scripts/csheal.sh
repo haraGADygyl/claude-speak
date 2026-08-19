@@ -21,6 +21,7 @@
 #
 #   0  already correct     11  repaired
 #   10 created             12  left alone, not ours
+#   13 unit rewritten and the daemon restarted with it
 
 cs_scripts_from_pointer() {          # <pointer file> -> scripts dir on stdout
   local pointer="$1" root
@@ -70,10 +71,11 @@ cs_unit_sync() {                     # <unit path> <venv python> <scripts dir>
   cs_unit_write "$@" || return 1
   command -v systemctl >/dev/null 2>&1 || return 10
   systemctl --user daemon-reload >/dev/null 2>&1
-  if systemctl --user is-enabled --quiet claude-speak.service 2>/dev/null; then
-    systemctl --user restart claude-speak.service >/dev/null 2>&1
-  fi
-  return 10
+  # Nothing to restart when the unit is not enabled: the daemon starts on the
+  # next reply, and saying it is stopped is then the honest answer.
+  systemctl --user is-enabled --quiet claude-speak.service 2>/dev/null || return 10
+  systemctl --user restart claude-speak.service >/dev/null 2>&1 || return 10
+  return 13
 }
 
 # A link worth repairing: one pointing into a claude-speak plugin directory,
