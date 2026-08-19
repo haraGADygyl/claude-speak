@@ -11,6 +11,11 @@ MODELS="$DATA/models"
 VENV="$DATA/venv"
 RELEASE="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
 
+# The PATH link and the systemd unit both name this directory absolutely, and
+# it moves on every plugin update. csheal.sh owns both.
+# shellcheck source=csheal.sh
+. "$SCRIPTS/csheal.sh"
+
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m warn:\033[0m %s\n' "$*"; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -122,25 +127,26 @@ python3 "$SCRIPTS/csconfig.py" config ensure \
 # hence a symlink rather than a copy.
 BINDIR="$HOME/.local/bin"
 LINK="$BINDIR/claude-speak"
+cs_record_root "$DATA/plugin-root" "$SCRIPTS" \
+  || warn "could not record the plugin location in $DATA"
+
 if [[ ! -x "$BIN/claude-speak" ]]; then
   warn "cannot find bin/claude-speak next to $SCRIPTS — skipping the PATH link"
-elif [[ -e "$LINK" || -L "$LINK" ]]; then
-  if [[ "$(readlink "$LINK" 2>/dev/null)" == "$BIN/claude-speak" ]]; then
-    say "claude-speak already linked into $BINDIR"
-  else
-    warn "$LINK exists and points elsewhere — leaving it alone"
-  fi
 else
-  mkdir -p "$BINDIR"
-  if ln -s "$BIN/claude-speak" "$LINK" 2>/dev/null; then
-    say "Linked claude-speak into $BINDIR"
-    case ":$PATH:" in
-      *":$BINDIR:"*) ;;
-      *) warn "$BINDIR is not on your PATH — add it, or use /claude-speak:speak in Claude Code" ;;
-    esac
-  else
-    warn "could not link into $BINDIR — use /claude-speak:speak in Claude Code instead"
-  fi
+  cs_link_sync "$BINDIR" "$SCRIPTS"
+  case $? in
+    0)  say "claude-speak already linked into $BINDIR" ;;
+    10) say "Linked claude-speak into $BINDIR" ;;
+    # An earlier release lives at the old target: plugin directories are
+    # version-stamped, so every update strands the link on the copy before it.
+    11) say "Re-pointed $LINK at this version" ;;
+    12) warn "$LINK exists and points elsewhere — leaving it alone" ;;
+    *)  warn "could not link into $BINDIR — use /claude-speak:speak in Claude Code instead" ;;
+  esac
+  case ":$PATH:" in
+    *":$BINDIR:"*) ;;
+    *) warn "$BINDIR is not on your PATH — add it, or use /claude-speak:speak in Claude Code" ;;
+  esac
 fi
 
 # --------------------------------------------------------------- systemd ----
@@ -149,22 +155,8 @@ fi
 if [[ "${1:-}" != "--no-service" ]] && command -v systemctl >/dev/null \
    && systemctl --user show-environment >/dev/null 2>&1; then
   UNIT="$HOME/.config/systemd/user/claude-speak.service"
-  mkdir -p "$(dirname "$UNIT")"
-  cat >"$UNIT" <<UNITEOF
-[Unit]
-Description=claude-speak TTS daemon (Kokoro)
-After=pipewire.service pulseaudio.service
-
-[Service]
-Type=simple
-ExecStart=$VENV/bin/python $SCRIPTS/kokorod.py
-Restart=on-failure
-RestartSec=3
-Nice=5
-
-[Install]
-WantedBy=default.target
-UNITEOF
+  cs_unit_write "$UNIT" "$VENV/bin/python" "$SCRIPTS" \
+    || die "could not write $UNIT"
   systemctl --user daemon-reload
   systemctl --user enable --now claude-speak.service >/dev/null 2>&1 \
     && say "Daemon enabled (systemd user service)" \

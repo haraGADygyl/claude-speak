@@ -214,6 +214,7 @@ update never re-downloads 338 MB:
 | `~/.local/share/claude-speak/models/` | Kokoro model + voices |
 | `~/.local/share/claude-speak/venv/` | Python environment |
 | `~/.local/share/claude-speak/held.jsonl` | Replies waiting in hold mode |
+| `~/.local/share/claude-speak/plugin-root` | Which plugin directory is installed, so the PATH link and the daemon survive an update |
 | `$XDG_RUNTIME_DIR/claude-speak.sock` | Daemon socket |
 
 Override with `CLAUDE_SPEAK_HOME` and `CLAUDE_SPEAK_CONFIG`.

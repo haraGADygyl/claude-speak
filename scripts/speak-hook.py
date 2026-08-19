@@ -53,6 +53,31 @@ def last_assistant_text(payload):
     return found
 
 
+def record_root():
+    """Note the plugin directory this hook is running from.
+
+    The hook is the only part of claude-speak that is always the installed
+    version — a plugin update moves ${CLAUDE_PLUGIN_ROOT} and leaves the old
+    directory on disk, still resolvable. The PATH link and the systemd unit
+    are absolute paths into it, so they need to be told where it went.
+    """
+    want = cspaths.SCRIPTS
+    try:
+        with open(cspaths.ROOT_POINTER) as fh:
+            if fh.read().strip() == want:
+                return                      # the common case: nothing to do
+    except OSError:
+        pass
+    try:
+        os.makedirs(cspaths.DATA, exist_ok=True)
+        tmp = cspaths.ROOT_POINTER + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(want + "\n")
+        os.replace(tmp, cspaths.ROOT_POINTER)   # never a half-written pointer
+    except OSError:
+        pass
+
+
 def notify(title, body):
     if shutil.which("notify-send"):
         cmd = ["notify-send", "-a", "Claude Code", "-i", "utilities-terminal",
@@ -213,6 +238,8 @@ def main():
         payload = json.load(sys.stdin)
     except ValueError:
         payload = {}
+
+    record_root()
 
     cfg = load_config()
     if not cfg["enabled"]:

@@ -55,6 +55,21 @@ Set those two env vars for anything that writes state. Without them you scribble
 
 `cspaths.py` is the only place paths are defined. Runtime state sits in `~/.local/share/claude-speak/` and `~/.config/claude-speak/` deliberately: a plugin update replaces the plugin directory, and the 338 MB model has to survive that.
 
+## The plugin directory moves on every update
+
+Claude Code installs a plugin into a version-stamped directory — `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` — and `${CLAUDE_PLUGIN_ROOT}` changes each time it updates. The old directory is left on disk and still resolves.
+
+Two things written at install time name that directory absolutely, and both went stale:
+
+- `~/.local/bin/claude-speak`, the symlink that puts the CLI on the user's PATH
+- `ExecStart=` in the systemd unit
+
+The second is the one that bit: a systemd user who ran `claude plugin update` kept launching the *previous* release's `kokorod.py` while the Stop hook ran the new code, so a fix shipped in the daemon never arrived and nothing looked wrong. `install.sh` was the only thing that rewrote either, and nobody re-runs it after an update.
+
+`scripts/csheal.sh` owns both, and `bin/claude-speak` calls it on every invocation. The direction of repair is the whole design: the Stop hook writes its own location to `$DATA/plugin-root` (it is the only part that always runs from the installed copy), and repairs go **towards that pointer, never towards the caller** — an out-of-date CLI fixing things to point at itself would pin the daemon to the release it came from. A link that is not ours is still left alone.
+
+Inside Claude Code none of this matters: a plugin's `bin/` is added to the Bash tool's PATH automatically, always at the current version.
+
 ## Adding a config setting means editing one file
 
 `DEFAULTS` in `scripts/cstext.py`, and nothing else. `scripts/csconfig.py` writes it out, and `ensure_cfg` in `bin/claude-speak` runs `csconfig.py config ensure` on every invocation, so an upgrade adds new keys without touching choices the user already made.

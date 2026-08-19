@@ -55,6 +55,30 @@ SAY=(python3 "$SCRIPTS/say.py")
 # and it leaves cstext.DEFAULTS as the only place the defaults are written.
 CS=(python3 "$SCRIPTS/csconfig.py")
 
+# shellcheck source=../scripts/csheal.sh
+. "$SCRIPTS/csheal.sh"
+UNIT="$HOME/.config/systemd/user/claude-speak.service"
+POINTER="$DATA/plugin-root"
+
+# A plugin update moves the directory this script lives in, and both the PATH
+# link and the systemd unit name the old one absolutely. The daemon then goes
+# on launching the previous release's kokorod.py while the Stop hook runs the
+# new code, so a shipped fix quietly never arrives. The hook records where the
+# current copy is; repair towards that pointer, never towards whatever version
+# is running this line — an old CLI fixing things to point at itself would pin
+# the daemon to the release it came from. Silent unless it changed something.
+heal() {
+  local scripts rc
+  scripts="$(cs_scripts_from_pointer "$POINTER")" || return 0
+
+  cs_unit_sync "$UNIT" "$VENV_PY" "$scripts"; rc=$?
+  [[ "$rc" == 10 ]] && echo "claude-speak: daemon unit re-pointed at the installed version"
+
+  cs_link_sync "$HOME/.local/bin" "$scripts"; rc=$?
+  [[ "$rc" == 11 ]] && echo "claude-speak: $HOME/.local/bin/claude-speak re-pointed at the installed version"
+  return 0
+}
+
 ensure_cfg() { "${CS[@]}" config ensure; }
 set_key()    { "${CS[@]}" config set "$1" "$2"; }
 get()        { "${CS[@]}" config get "$1"; }
@@ -98,6 +122,7 @@ status() {
 }
 
 ensure_cfg
+heal
 
 case "${1:-status}" in
   install) exec bash "$SCRIPTS/install.sh" "${@:2}" ;;

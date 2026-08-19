@@ -21,6 +21,12 @@ VOICES = os.path.join(DATA, "models", "voices-v1.0.bin")
 HELD = os.path.join(DATA, "held.jsonl")
 LOG = os.path.join(DATA, "daemon.log")
 
+# Where the plugin is installed right now, recorded by the Stop hook because it
+# is the only part that always runs from the current copy. Claude Code stamps
+# the plugin directory with the version, so it moves on every update, and both
+# the PATH link and the systemd unit name it absolutely — see scripts/csheal.sh.
+ROOT_POINTER = os.path.join(DATA, "plugin-root")
+
 # A socket under XDG_RUNTIME_DIR is cleaned up on logout; fall back for systems
 # that do not set it (some containers, some BSD-ish setups).
 _RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or DATA
