@@ -17,12 +17,15 @@ whose eyes are done for the day.
 Restart Claude Code, then fetch the voice model (~338 MB) — once:
 
 ```
-/speak install
+/claude-speak:speak install
 ```
 
-Use `/speak install` rather than a shell for this first run: the installer is
-what puts `claude-speak` on your PATH, by linking it into `~/.local/bin`. After
-it finishes, `claude-speak …` and `/speak …` are interchangeable.
+Claude Code namespaces plugin commands, so the full name is
+`/claude-speak:speak` — typing `/speak` narrows the menu to it.
+
+Use it rather than a shell for this first run: the installer is what puts
+`claude-speak` on your PATH, by linking it into `~/.local/bin`. After it
+finishes, `claude-speak …` and `/claude-speak:speak …` are interchangeable.
 
 Restart Claude Code once more so the Stop hook loads, and you're set.
 
@@ -114,7 +117,7 @@ hearing more than one.
 ## Controls
 
 Every command works from a shell as `claude-speak …` or inside Claude Code as
-`/speak …`.
+`/claude-speak:speak …`.
 
 | Command | What it does |
 | --- | --- |

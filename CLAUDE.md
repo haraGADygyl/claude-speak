@@ -89,7 +89,7 @@ Any change here needs a case in `tests/test_cstext.py`, including the ones that 
 Adding a user-visible command touches four places:
 
 1. `bin/claude-speak` — the `case` branch, the header comment (which *is* the `--help` output, printed by awk up to the first non-comment line), and the unknown-option list
-2. `skills/speak/SKILL.md` — `argument-hint` and the valid-arguments line. This is the `/speak` slash command; it has `disable-model-invocation: true` and runs the binary via `!` frontmatter, so Claude's whole job is to report the result in one line
+2. `skills/speak/SKILL.md` — `argument-hint` and the valid-arguments line. This is the `/claude-speak:speak` slash command — Claude Code namespaces plugin commands as `<plugin>:<skill>`, so there is no bare `/speak`; it has `disable-model-invocation: true` and runs the binary via `!` frontmatter, so Claude's whole job is to report the result in one line
 3. `README.md` — the Controls table
 4. `.claude-plugin/plugin.json` — **bump `version` in the same commit.** Every release so far has done this: minor for a feature, patch for a fix
 

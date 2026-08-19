@@ -10,7 +10,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/claude-speak:*) Bash(claude-speak:
 Controls whether Claude Code reads its replies aloud. This is the *output* side;
 Claude Code's built-in `/voice` is the *input* side (dictation).
 
-The user ran `/speak $ARGUMENTS`. The command has already executed:
+The user ran `/claude-speak:speak $ARGUMENTS`. The command has already executed:
 
 !`"${CLAUDE_PLUGIN_ROOT}/bin/claude-speak" $ARGUMENTS`
 

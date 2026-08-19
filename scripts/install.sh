@@ -33,7 +33,7 @@ have_player() {
 
 # Offer rather than assume: installing system packages needs root on Linux, and
 # a TTS plugin reaching for sudo unasked is not a thing to do quietly. With no
-# terminal to ask at — /speak install runs without one — just print the command.
+# terminal to ask at — the slash command runs without one — just print it.
 offer_install() {   # offer_install <what it is for> <package...>
   local why="$1"; shift
   local cmd
@@ -136,10 +136,10 @@ else
     say "Linked claude-speak into $BINDIR"
     case ":$PATH:" in
       *":$BINDIR:"*) ;;
-      *) warn "$BINDIR is not on your PATH — add it, or use /speak inside Claude Code" ;;
+      *) warn "$BINDIR is not on your PATH — add it, or use /claude-speak:speak in Claude Code" ;;
     esac
   else
-    warn "could not link into $BINDIR — use /speak inside Claude Code instead"
+    warn "could not link into $BINDIR — use /claude-speak:speak in Claude Code instead"
   fi
 fi
 
@@ -196,6 +196,7 @@ use, so a call is never interrupted (claude-speak guard test).
   claude-speak voice bm_george
   claude-speak speed 1.2
 
-The same controls exist in Claude Code as /speak (for example "/speak
-play"). Restart Claude Code once so the Stop hook loads.
+The same controls exist in Claude Code as /claude-speak:speak (for
+example "/claude-speak:speak play"). Restart Claude Code once so the
+Stop hook loads.
 DONE
