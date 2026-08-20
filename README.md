@@ -84,6 +84,16 @@ by sentence, and playback starts after the first one.
 sixty seconds of syntax. `src/api/parser.py:42` becomes *"parser.py line 42"*.
 URLs become *"link"*. Markdown, tables, and emoji are stripped.
 
+**You can ask for it again.** Missed the end of a reply, or the room got loud?
+
+```
+claude-speak again
+```
+
+It re-reads the last reply from this project, exactly as it was spoken —
+already stripped of markdown, already cut to `maxChars`. It works whether the
+reply was spoken or held, and asking twice restarts it rather than queueing.
+
 **It reads more than replies.** Point it at a file and it reads that instead —
 same voice, same markdown stripping:
 
@@ -125,6 +135,7 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | --- | --- |
 | `on` / `off` | Toggle reading replies aloud |
 | `stop` | Shut up right now |
+| `again` | Read the last reply again — you missed it |
 | `speed 1.2` | 0.5 slow → 1.5 fast |
 | `voice af_bella` | Switch voice (and preview it) |
 | `voices` | List all 54 |
@@ -216,6 +227,7 @@ update never re-downloads 338 MB:
 | `~/.local/share/claude-speak/models/` | Kokoro model + voices |
 | `~/.local/share/claude-speak/venv/` | Python environment |
 | `~/.local/share/claude-speak/held.jsonl` | Replies waiting in hold mode |
+| `~/.local/share/claude-speak/last/` | The most recent reply per project, for `again` |
 | `~/.local/share/claude-speak/plugin-root` | Which plugin directory is installed, so the PATH link and the daemon survive an update |
 | `$XDG_RUNTIME_DIR/claude-speak.sock` | Daemon socket |
 

@@ -16,6 +16,9 @@ defaults are written down.
     csconfig.py held pending <here>    the listing, current project marked
     csconfig.py held text [label]      one string to speak, oldest first
     csconfig.py held drop [label]      discard, "" for all
+
+    csconfig.py last get <label>       the last reply spoken there, for `again`
+    csconfig.py last drop <label>      forget it
 """
 
 import json
@@ -178,6 +181,28 @@ def cmd_held(argv):
     return 0
 
 
+def cmd_last(argv):
+    action = argv[0] if argv else "get"
+    label = argv[1] if len(argv) > 1 else ""
+    path = cspaths.last_file(label)
+
+    if action == "get":
+        try:
+            with open(path) as fh:
+                sys.stdout.write(fh.read())
+        except OSError:
+            return 1                     # nothing spoken here yet
+        return 0
+    if action == "drop":
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return 0
+    print("unknown last action: %s" % action, file=sys.stderr)
+    return 2
+
+
 def main(argv):
     if not argv:
         print(__doc__.strip(), file=sys.stderr)
@@ -200,6 +225,8 @@ def main(argv):
         return 0
     if group == "held":
         return cmd_held(rest)
+    if group == "last":
+        return cmd_last(rest)
     print("unknown group: %s" % group, file=sys.stderr)
     return 2
 

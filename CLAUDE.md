@@ -51,6 +51,8 @@ printf '{"session_id":"s","cwd":"/tmp/proj","last_assistant_message":"hi"}' \
 
 Set those two env vars for anything that writes state. Without them you scribble on the user's real config and their queue of held replies.
 
+They redirect `$DATA` and the config — **not `$HOME`**. `bin/claude-speak` repairs the PATH link and the systemd unit under `$HOME` from a pointer inside `$DATA`, so a scratch run with only these two set once re-pointed the live daemon at a git working tree and left it failing `203/EXEC`. `heal()` now returns early when either variable is set; redirect `HOME` and `XDG_RUNTIME_DIR` as well when driving the CLI in a test, or the socket you reach is the real daemon and it will speak.
+
 ## State lives outside the plugin directory
 
 `cspaths.py` is the only place paths are defined. Runtime state sits in `~/.local/share/claude-speak/` and `~/.config/claude-speak/` deliberately: a plugin update replaces the plugin directory, and the 338 MB model has to survive that.
@@ -90,6 +92,7 @@ It used to be three files — the Python dict plus a `DEFAULT_CFG` heredoc in `b
 - **The meeting guard outranks every other setting.** If `pactl list source-outputs` shows a recording stream, the reply is held with *no* sound at all — the ding is suppressed too.
 - **Hold scoping is by directory basename.** The hook labels each reply `basename(cwd)`; `play`/`clear`/`pending` default to that label, which is how one terminal reads back only its own project.
 - **Multi-session:** the same `session_id` interrupts itself (that reply is stale); a different session queues behind and is introduced as "From \<project\>".
+- **`again` reads a copy, not the transcript.** The hook writes each reply to `$DATA/last/<label>.txt` after cleaning and after the maxChars cut, so a repeat is the same words rather than nearly the same words — and the CLI needs no session id and no knowledge of where Claude Code keeps transcripts. `cspaths.last_file` maps the label to a filename, which is why a project called `..` cannot write outside `$DATA`.
 - **The spoken queue holds three.** `MAX_QUEUE` in `kokorod.py` caps waiting replies at 3 and drops the *oldest* beyond that, so a fourth terminal finishing during a long reply loses the first one. Held replies (`held.jsonl`) have no such cap — this applies only to speech in flight.
 
 ## The text cleaner is the fragile part

@@ -196,6 +196,41 @@ class UnitRestart(Shell):
         self.assertNotIn("restart", self.calls())
 
 
+class RedirectedStateIsLeftAlone(unittest.TestCase):
+    """CLAUDE_SPEAK_HOME redirects the state, never $HOME.
+
+    The pointer then describes a scratch world while the link and the unit
+    being repaired from it are the real ones. A test run that forgot to
+    redirect HOME as well re-pointed a live daemon at a git working tree,
+    where it failed 203/EXEC until the unit was rewritten by hand.
+    """
+
+    def test_the_cli_repairs_nothing_when_state_is_redirected(self):
+        sandbox = tempfile.mkdtemp()
+        home = os.path.join(sandbox, "home")
+        data = os.path.join(sandbox, "data")
+        os.makedirs(os.path.join(home, ".local", "bin"))
+        os.makedirs(data)
+
+        stale = os.path.join(sandbox, "stale-claude-speak")
+        open(stale, "w").close()
+        link = os.path.join(home, ".local", "bin", "claude-speak")
+        os.symlink(stale, link)
+
+        # A pointer that would otherwise be acted on.
+        with open(os.path.join(data, "plugin-root"), "w") as fh:
+            fh.write(os.path.join(ROOT, "scripts") + "\n")
+
+        subprocess.run(["bash", os.path.join(ROOT, "bin", "claude-speak"), "hold"],
+                       capture_output=True, text=True,
+                       env=dict(os.environ, HOME=home,
+                                CLAUDE_SPEAK_HOME=data,
+                                CLAUDE_SPEAK_CONFIG=os.path.join(sandbox, "c.json"),
+                                XDG_RUNTIME_DIR=sandbox))
+
+        self.assertEqual(os.readlink(link), stale)
+
+
 class Pointer(unittest.TestCase):
     """The Stop hook is the only part that always runs from the current copy."""
 

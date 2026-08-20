@@ -5,6 +5,7 @@
 #   claude-speak [status]        show current settings
 #   claude-speak on | off        toggle reading replies aloud
 #   claude-speak stop            shut up right now
+#   claude-speak again           read the last reply again — you missed it
 #   claude-speak test            speak a sample line
 #   claude-speak read FILE       read a file aloud (- for stdin)
 #   claude-speak voice af_bella  pick a voice
@@ -69,6 +70,13 @@ POINTER="$DATA/plugin-root"
 # the daemon to the release it came from. Silent unless it changed something.
 heal() {
   local scripts rc
+
+  # Redirected state means a test or a debug run, and its pointer describes a
+  # different world — while the link and the unit repaired from it are the
+  # real ones, under $HOME. That combination once re-pointed a live daemon at
+  # a working tree and left it failing 203/EXEC until the unit was rewritten.
+  [[ -n "${CLAUDE_SPEAK_HOME:-}${CLAUDE_SPEAK_CONFIG:-}" ]] && return 0
+
   scripts="$(cs_scripts_from_pointer "$POINTER")" || return 0
 
   cs_unit_sync "$UNIT" "$VENV_PY" "$scripts"; rc=$?
@@ -310,6 +318,21 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
       "$([[ "$f" == "-" ]] && echo "stdin" || basename "$f")" "${#text}" "$est"
     ;;
 
+  again)
+    # The reply as it was spoken — the hook keeps a copy per project, so this
+    # needs no transcript and no guesswork about which session you are in.
+    # A fixed session id means a second "again" replaces the first rather than
+    # queueing behind it, and piping sidesteps the argv limit on a long reply.
+    want="${2:-$(basename "$PWD")}"
+    text=$("${CS[@]}" last get "$want") \
+      || { echo "nothing spoken here yet — ${want} has no last reply"; exit 0; }
+    [[ -n "${text//[[:space:]]/}" ]] || { echo "nothing to repeat"; exit 0; }
+    printf '%s' "$text" | "${SAY[@]}" --session again --label "" \
+      --voice "$(get voice)" --speed "$(get speed)"
+    printf 'repeating the last reply from %s — %s chars. Stop with: claude-speak stop\n' \
+      "$want" "${#text}"
+    ;;
+
   test)
     "${SAY[@]}" --voice "$(get voice)" --speed "$(get speed)" \
       "This is how Claude Code will sound when it reads a reply aloud. I fixed the import in parser dot pi, line forty two, and the tests pass."
@@ -334,10 +357,10 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
   -h|--help|help) awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$SELF" ;;
   *)
     echo "unknown option: $1"
-    echo "valid: install on off stop status speed <n> voice <name> max <n> mode <m>"
-    echo "       queue hold <on|off> guard <on|off|test> sound <file|off|default>"
-    echo "       pending play [all|project] clear [all|project] read <file>"
-    echo "       voices audition test restart log"
+    echo "valid: install on off stop again status speed <n> voice <name> max <n>"
+    echo "       mode <m> queue hold <on|off> guard <on|off|test>"
+    echo "       sound <file|off|default> pending play [all|project]"
+    echo "       clear [all|project] read <file> voices audition test restart log"
     exit 2
     ;;
 esac

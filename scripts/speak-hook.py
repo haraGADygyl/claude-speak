@@ -182,6 +182,25 @@ def hold(text, cfg, quiet=False):
         ding(cfg)
 
 
+def remember(text, cfg):
+    """Keep this reply so `claude-speak again` can read it back.
+
+    Stored after cleaning and after the maxChars cut, so a repeat is the same
+    words in the same order rather than nearly so. One file per project, keyed
+    the way play and clear are keyed, written atomically because two sessions
+    in the same directory can finish at the same moment.
+    """
+    try:
+        path = cspaths.last_file(cfg["_label"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def pick_engine(cfg):
     want = cfg["engine"]
     if want != "auto":
@@ -259,6 +278,10 @@ def main():
     if len(text) > limit:
         cut = text.rfind(".", 0, limit)
         text = text[: cut + 1 if cut > limit // 2 else limit] + " . Rest is on screen."
+
+    # Kept whatever happens next — held, spoken or swallowed by the guard.
+    # "I missed that" applies to all three.
+    remember(text, cfg)
 
     # A live microphone outranks every other setting: stash the reply and make
     # no sound at all, so a client call is never interrupted.
