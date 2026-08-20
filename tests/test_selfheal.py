@@ -14,6 +14,7 @@ every path is a temporary directory, and cs_unit_sync is exercised through
 cs_unit_write and cs_unit_stale, which do not shell out.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -260,6 +261,49 @@ class Pointer(unittest.TestCase):
         self.run_hook()
         with open(self.pointer) as fh:
             self.assertEqual(fh.read().strip(), os.path.join(ROOT, "scripts"))
+
+    def fake_plugin(self, version):
+        """A plugin directory at some version, for a pointer to name."""
+        root = os.path.join(self.dir, "plug-" + version)
+        os.makedirs(os.path.join(root, ".claude-plugin"))
+        os.makedirs(os.path.join(root, "scripts"))
+        with open(os.path.join(root, ".claude-plugin", "plugin.json"), "w") as fh:
+            json.dump({"name": "claude-speak", "version": version}, fh)
+        return os.path.join(root, "scripts")
+
+    def point_at(self, scripts):
+        with open(self.pointer, "w") as fh:
+            fh.write(scripts + "\n")
+
+    def read_pointer(self):
+        with open(self.pointer) as fh:
+            return fh.read().strip()
+
+    def test_an_older_session_does_not_drag_the_pointer_back(self):
+        """Several terminals, each holding the release it started with.
+
+        Last writer winning is what sent the PATH link and the daemon back to
+        an earlier version — and restarted the daemon — every time an old
+        session answered.
+        """
+        newer = self.fake_plugin("99.0.0")
+        self.point_at(newer)
+        self.run_hook()
+        self.assertEqual(self.read_pointer(), newer)
+
+    def test_a_newer_session_takes_it(self):
+        older = self.fake_plugin("0.0.1")
+        self.point_at(older)
+        self.run_hook()
+        self.assertEqual(self.read_pointer(), os.path.join(ROOT, "scripts"))
+
+    def test_a_pointer_with_no_manifest_is_replaced(self):
+        """Deleted, or never a plugin: nothing there to defer to."""
+        orphan = os.path.join(self.dir, "orphan", "scripts")
+        os.makedirs(orphan)
+        self.point_at(orphan)
+        self.run_hook()
+        self.assertEqual(self.read_pointer(), os.path.join(ROOT, "scripts"))
 
     def test_the_shell_agrees_the_pointer_is_usable(self):
         self.run_hook()

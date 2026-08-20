@@ -4,6 +4,7 @@ Runtime state deliberately lives outside the plugin directory: plugin updates
 replace that directory, and a 338 MB model download should survive them.
 """
 
+import json
 import os
 import re
 
@@ -36,6 +37,31 @@ SOCK = os.path.join(_RUNTIME, "claude-speak.sock")
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 DAEMON = os.path.join(SCRIPTS, "kokorod.py")
+
+
+def version_key(text):
+    """(0, 7, 1) from "0.7.1", so versions compare the way people read them.
+
+    Anything unparseable sorts oldest: a version we cannot read is not one to
+    defer to.
+    """
+    parts = re.findall(r"\d+", str(text or ""))[:4]
+    return tuple(int(p) for p in parts)
+
+
+def plugin_version(scripts_dir):
+    """The version of the plugin a scripts/ directory belongs to, as a key.
+
+    Empty when there is no readable manifest — a directory that has been
+    deleted, or something that was never a plugin.
+    """
+    manifest = os.path.join(os.path.dirname(scripts_dir),
+                            ".claude-plugin", "plugin.json")
+    try:
+        with open(manifest) as fh:
+            return version_key(json.load(fh).get("version"))
+    except (OSError, ValueError, AttributeError):
+        return ()
 
 
 def last_file(label):

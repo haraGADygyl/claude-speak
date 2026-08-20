@@ -62,12 +62,22 @@ def record_root():
     are absolute paths into it, so they need to be told where it went.
     """
     want = cspaths.SCRIPTS
+    have = ""
     try:
         with open(cspaths.ROOT_POINTER) as fh:
-            if fh.read().strip() == want:
-                return                      # the common case: nothing to do
+            have = fh.read().strip()
     except OSError:
         pass
+    if have == want:
+        return                              # the common case: nothing to do
+
+    # Several terminals can be open on different releases, each with its own
+    # copy of this hook still loaded from the version it started with. Last
+    # writer used to win, so an older session dragged the PATH link and the
+    # daemon back to its own release and restarted them. Newest wins instead.
+    # A pointer with no readable version is stale by definition.
+    if have and cspaths.plugin_version(have) > cspaths.plugin_version(want):
+        return
     try:
         os.makedirs(cspaths.DATA, exist_ok=True)
         tmp = cspaths.ROOT_POINTER + ".tmp"
