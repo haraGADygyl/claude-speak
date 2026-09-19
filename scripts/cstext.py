@@ -169,6 +169,47 @@ def split_chunks(text, limit=CHUNK_CHARS):
     return [c for c in chunks if c]
 
 
+MAX_SPLITS = 3      # 260 characters down to ~32 before giving up on a chunk
+
+
+def split_in_two(text):
+    """A chunk halved at the space nearest its middle."""
+    mid = len(text) // 2
+    left = text.rfind(" ", 0, mid)
+    right = text.find(" ", mid)
+    cut = right if left < 0 else (left if right < 0 or mid - left <= right - mid
+                                  else right)
+    if cut <= 0:
+        cut = mid
+    return text[:cut].strip(), text[cut:].strip()
+
+
+def synth_chunks(create, chunk, on_error=None, depth=MAX_SPLITS):
+    """Synthesize one chunk, halving it and retrying when the model refuses.
+
+    Kokoro truncates its input at 510 phonemes and then indexes past the end
+    of its own array, so a chunk that is short in characters but long in
+    phonemes raises IndexError. Both callers used to skip that chunk, which
+    lost a sentence or two out of the middle of a document without anything
+    audible marking the gap — the worst failure this pipeline can have, since
+    you cannot hear what is missing.
+
+    Characters are a poor proxy for phonemes, so the limit cannot be enforced
+    up front; halving finds it. Order is preserved, because a piece returned
+    out of turn is heard out of turn — the same contract as split_chunks.
+    """
+    try:
+        return [create(chunk)]
+    except Exception as exc:
+        if depth <= 0 or " " not in chunk.strip():
+            if on_error is not None:
+                on_error(chunk, exc)
+            return []
+        left, right = split_in_two(chunk)
+        return (synth_chunks(create, left, on_error, depth - 1)
+                + synth_chunks(create, right, on_error, depth - 1))
+
+
 def read_source(path):
     """A file, or stdin for "-". Binary is refused rather than read aloud."""
     if path == "-":

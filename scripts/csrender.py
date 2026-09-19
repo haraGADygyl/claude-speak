@@ -116,16 +116,20 @@ def render(kokoro, src, out, voice, speed, say_title=True, show_progress=False):
     chunks = cstext.split_chunks(text)
     rec = None
     try:
+        def create(piece):
+            return kokoro.create(piece, voice=voice, speed=speed)
+
+        def dropped(piece, exc):
+            print("  (skipped a line of %s: %r)" % (os.path.basename(src), exc))
+
         for i, chunk in enumerate(chunks):
-            try:
-                samples, rate = kokoro.create(chunk, voice=voice, speed=speed)
-            except Exception as exc:          # a phonemizer hiccup on one line
-                print("  (skipped a line of %s: %r)" % (os.path.basename(src), exc))
-                continue
-            if rec is None:                   # the rate is only known now
-                rec = csaudio.Recorder(out, rate)
-            rec.write((np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes())
-            if show_progress:
+            # Halved and retried when the model refuses it — a gap in a file
+            # you listen to later is one you cannot hear is there.
+            for samples, rate in cstext.synth_chunks(create, chunk, dropped):
+                if rec is None:               # the rate is only known now
+                    rec = csaudio.Recorder(out, rate)
+                rec.write((np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes())
+            if show_progress and rec is not None:
                 sys.stdout.write("\r  %s  %d%%  %s"
                                  % (os.path.basename(out),
                                     (i + 1) * 100 // len(chunks),

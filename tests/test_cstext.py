@@ -382,5 +382,74 @@ class ReadCommand(unittest.TestCase):
         self.assertIn("nothing to read", r.stdout)
 
 
+class SynthRetry(unittest.TestCase):
+    """Kokoro refuses a chunk over 510 phonemes, which characters cannot
+    predict. Both callers used to drop it, losing a sentence out of the middle
+    of a reply with nothing audible marking the gap."""
+
+    def test_a_chunk_that_works_is_synthesized_once(self):
+        calls = []
+        out = cstext.synth_chunks(lambda c: calls.append(c) or ("pcm", 24000),
+                                  "hello there")
+        self.assertEqual(calls, ["hello there"])
+        self.assertEqual(out, [("pcm", 24000)])
+
+    def test_a_refused_chunk_is_halved_rather_than_dropped(self):
+        seen = []
+
+        def create(piece):
+            seen.append(piece)
+            if len(piece) > 12:
+                raise IndexError("index 510 is out of bounds")
+            return piece
+
+        out = cstext.synth_chunks(create, "one two three four five six")
+        self.assertEqual(" ".join(out), "one two three four five six")
+
+    def test_the_pieces_come_back_in_order(self):
+        # A piece returned out of turn is *heard* out of turn.
+        def create(piece):
+            if " " in piece:
+                raise IndexError("too long")
+            return piece
+
+        self.assertEqual(cstext.synth_chunks(create, "alpha beta gamma delta"),
+                         ["alpha", "beta", "gamma", "delta"])
+
+    def test_it_gives_up_instead_of_halving_forever(self):
+        tries = []
+
+        def create(piece):
+            tries.append(piece)
+            raise RuntimeError("no")
+
+        dropped = []
+        out = cstext.synth_chunks(create, "a b c d e f g h",
+                                  lambda piece, exc: dropped.append(piece))
+        self.assertEqual(out, [])
+        self.assertLessEqual(len(tries), 2 ** (cstext.MAX_SPLITS + 1))
+        self.assertTrue(dropped)
+
+    def test_a_single_unspeakable_word_is_reported_once(self):
+        dropped = []
+
+        def create(piece):
+            raise RuntimeError("no")
+
+        cstext.synth_chunks(create, "supercalifragilistic",
+                            lambda piece, exc: dropped.append(piece))
+        self.assertEqual(dropped, ["supercalifragilistic"])
+
+    def test_halving_breaks_on_a_space(self):
+        left, right = cstext.split_in_two("one two three four")
+        self.assertEqual((left, right), ("one two", "three four"))
+        self.assertNotIn("  ", left + " " + right)
+
+    def test_halving_a_word_still_returns_two_pieces(self):
+        left, right = cstext.split_in_two("abcdefgh")
+        self.assertEqual(left + right, "abcdefgh")
+        self.assertTrue(left and right)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

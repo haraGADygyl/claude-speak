@@ -30,7 +30,7 @@ import cspaths  # noqa: E402
 import csaudio  # noqa: E402
 # Chunking is pure text handling, so it lives with the rest of it in cstext —
 # stdlib only, and testable without the venv this daemon runs under.
-from cstext import split_chunks  # noqa: E402
+from cstext import split_chunks, synth_chunks  # noqa: E402
 
 MAX_QUEUE = 3       # waiting replies; oldest is dropped beyond this
 
@@ -167,39 +167,44 @@ class Speaker:
         # the rate is not known until the first chunk is synthesized.
         stream, file_player = None, csaudio.file_player()
         try:
+            def create(piece):
+                return self.kokoro.create(piece, voice=job.voice, speed=job.speed)
+
+            def dropped(piece, exc):          # bad voice, phonemizer hiccup
+                print("synth error: %r on %r" % (exc, piece[:60]),
+                      file=sys.stderr, flush=True)
+
             for chunk in split_chunks(text):
                 if self.cancel:
                     return
-                try:
-                    samples, rate = self.kokoro.create(
-                        chunk, voice=job.voice, speed=job.speed)
-                except Exception as exc:      # bad voice, phonemizer hiccup
-                    print("synth error: %r" % (exc,), file=sys.stderr, flush=True)
-                    continue
-                if self.cancel:
-                    return
-
-                pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
-                cmd = csaudio.stream_cmd(rate)
-
-                if cmd is None:
-                    if file_player is None:
-                        raise RuntimeError(csaudio.NO_PLAYER)
-                    if not self._play_file(pcm, rate, file_player):
+                # A chunk the model refuses is halved and retried rather than
+                # skipped: dropping it takes a sentence out of the middle of a
+                # reply with nothing audible to mark the gap.
+                for samples, rate in synth_chunks(create, chunk, dropped):
+                    if self.cancel:
                         return
-                    continue
 
-                if stream is None:
-                    stream = subprocess.Popen(
-                        cmd, stdin=subprocess.PIPE,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    if not self._adopt(stream):
+                    pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+                    cmd = csaudio.stream_cmd(rate)
+
+                    if cmd is None:
+                        if file_player is None:
+                            raise RuntimeError(csaudio.NO_PLAYER)
+                        if not self._play_file(pcm, rate, file_player):
+                            return
+                        continue
+
+                    if stream is None:
+                        stream = subprocess.Popen(
+                            cmd, stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if not self._adopt(stream):
+                            return
+                    try:
+                        stream.stdin.write(pcm)
+                        stream.stdin.flush()
+                    except (BrokenPipeError, ValueError, OSError):
                         return
-                try:
-                    stream.stdin.write(pcm)
-                    stream.stdin.flush()
-                except (BrokenPipeError, ValueError, OSError):
-                    return
         finally:
             if stream is not None:
                 try:
