@@ -105,6 +105,20 @@ git log -5 | claude-speak read -
 It tells you how long the file will take before it starts, and `claude-speak
 stop` ends it early. Binary files are refused rather than read aloud.
 
+**It writes files you can take with you.** Point `save` at a document — or a
+whole directory of them — and you get MP3s instead of sound:
+
+```
+claude-speak save docs/ -o ~/audio     # every .md in docs/, one MP3 each
+claude-speak save RFC.md               # RFC.md -> RFC.mp3, here
+claude-speak save notes.md -o trip.wav # no encoder on the machine? ask for wav
+```
+
+Nothing is played, so this is safe to run in an open-plan office. Each file
+opens by speaking its own name, which is what tells you where you are when a
+directory of them is playing in a car, and the model is loaded once for the
+whole run. MP3 needs `ffmpeg` or `lame`; wav needs neither.
+
 **It knows which terminal is talking.** With several Claude Code sessions open,
 a reply from another project waits its turn and introduces itself — *"From api
 server. The migration finished…"* — instead of cutting off whatever is speaking.
@@ -148,6 +162,7 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `play` / `play all` / `play <project>` | Read stashed replies — this terminal, everything, or one project |
 | `pending` / `clear` | List or discard stashed replies (same scoping) |
 | `read <file>` | Read any file aloud — `-` for stdin |
+| `save <file\|dir>` | Write it to MP3 instead — `-o DIR` or `-o NAME.mp3` |
 | `mode queue` | Multi-terminal behaviour: `queue`, `interrupt`, `drop` |
 | `queue` | What's speaking and what's waiting |
 | `status` | Current settings |
@@ -176,6 +191,7 @@ is no `jq` either.
 | If none | the installer offers to `apt install pulseaudio-utils` | cannot happen |
 | Virtualenv | `uv`, or `python3-venv` | `python3` is enough |
 | Notifications | `notify-send` (`libnotify-bin`), optional | `osascript`, built in |
+| `save` to MP3 | `ffmpeg` or `lame` — `-o name.wav` needs neither | `ffmpeg` or `lame`, via Homebrew |
 | Meeting guard | works, via `pactl` | **unavailable** — no `pactl`, so the guard stays inert and hold mode is the protection |
 | Daemon | systemd user service, warm across reboots | starts on demand, stays up for the login session |
 

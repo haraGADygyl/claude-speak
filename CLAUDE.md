@@ -20,14 +20,14 @@ claude-speak restart | log | queue       # daemon control
 
 No build, no linter, no CI. The tests need nothing installed and play no audio.
 
-**Most other commands make real noise on the user's machine.** `claude-speak test|read|play|voice|speed|audition|install` and `say.py` all synthesize and play, and `claude-speak sound <file>` plays the file you hand it. Prefer `scripts/cstext.py` or the tests when verifying changes. To exercise the socket path without audio, bind a stub listener at `$XDG_RUNTIME_DIR/claude-speak.sock` — AF_UNIX paths cap near 108 bytes, so a deep scratchpad directory will fail to bind; use a short `/tmp` path.
+**Most other commands make real noise on the user's machine.** `claude-speak test|read|play|voice|speed|audition|install` and `say.py` all synthesize and play, and `claude-speak sound <file>` plays the file you hand it. Prefer `scripts/cstext.py` or the tests when verifying changes. `claude-speak save` is the exception among the model-loading commands: it renders to an mp3 and plays nothing, so it is safe to run — it just takes real seconds per file. To exercise the socket path without audio, bind a stub listener at `$XDG_RUNTIME_DIR/claude-speak.sock` — AF_UNIX paths cap near 108 bytes, so a deep scratchpad directory will fail to bind; use a short `/tmp` path.
 
 ## Two Python runtimes — the constraint that shapes everything
 
 | Runs under | Files | May import |
 | --- | --- | --- |
 | System `python3` | `speak-hook.py`, `say.py`, `cstext.py`, `cspaths.py`, `csconfig.py`, `csaudio.py` | **stdlib only** |
-| Venv `$DATA/venv/bin/python` | `kokorod.py`, `audition.py` | `numpy`, `kokoro_onnx` |
+| Venv `$DATA/venv/bin/python` | `kokorod.py`, `audition.py`, `csrender.py` | `numpy`, `kokoro_onnx` |
 
 The Stop hook runs under whatever `python3` Claude Code happens to have and cannot see the venv. A third-party import anywhere in the first row breaks speech for every user — silently, for the reason below.
 

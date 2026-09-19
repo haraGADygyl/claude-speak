@@ -1,6 +1,6 @@
 ---
 description: Read Claude's replies aloud — on, off, stop, speed, voice, hold, play (TTS output, not dictation)
-argument-hint: "[on|off|stop|again|status|speed 1.2|voice af_bella|voices|max 4000|mode queue|hold on|guard test|sound off|queue|pending|play|play all|clear|read FILE|test|audition|install|restart|log]"
+argument-hint: "[on|off|stop|again|status|speed 1.2|voice af_bella|voices|max 4000|mode queue|hold on|guard test|sound off|queue|pending|play|play all|clear|read FILE|save FILE|test|audition|install|restart|log]"
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/claude-speak:*) Bash(claude-speak:*)
 ---
@@ -23,6 +23,7 @@ Report the result in **one short line**. Examples of the whole reply:
 - `Speed now 1.2x.`
 - `3 replies waiting from api-server and GitHub.`
 - `Reading README.md — about 4 minutes.`
+- `Saved 6 MP3s to ~/audio — 48 minutes of audio.`
 - `Repeating the last reply.`
 
 Rules:
@@ -35,7 +36,7 @@ Rules:
   voice model has not been downloaded yet.
 - If the argument was not recognised, say so in one line and list the valid ones inline:
   `on, off, stop, again, status, speed <n>, voice <name>, max <n>, mode <queue|interrupt|drop>, guard <on|off|test>, sound <file|off|default>,
-  queue, hold <on|off>, pending, play [all|project], clear [all|project], read <file>, voices, test, audition, install, restart, log`.
+  queue, hold <on|off>, pending, play [all|project], clear [all|project], read <file>, save <file|dir>, voices, test, audition, install, restart, log`.
 
 Reference — settings live in `~/.config/claude-speak/config.json`, the model and
 held replies in `~/.local/share/claude-speak/`, and the daemon is the systemd user

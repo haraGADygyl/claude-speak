@@ -8,6 +8,7 @@
 #   claude-speak again           read the last reply again — you missed it
 #   claude-speak test            speak a sample line
 #   claude-speak read FILE       read a file aloud (- for stdin)
+#   claude-speak save FILE|DIR   write it to an MP3 instead (-o DIR|FILE.mp3)
 #   claude-speak voice af_bella  pick a voice
 #   claude-speak voices          list every voice
 #   claude-speak audition        hear the best English voices back to back
@@ -318,6 +319,17 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
       "$([[ "$f" == "-" ]] && echo "stdin" || basename "$f")" "${#text}" "$est"
     ;;
 
+  save)
+    kokoro_ready || { echo "run 'claude-speak install' first"; exit 1; }
+    shift
+    [[ $# -gt 0 ]] || {
+      echo "usage: claude-speak save FILE|DIR... [-o DIR|FILE.mp3]"; exit 2; }
+    # Nothing is played and the daemon is not involved: this loads its own copy
+    # of the model, renders every file, and exits. Minutes, not milliseconds.
+    "$VENV_PY" "$SCRIPTS/csrender.py" \
+      --voice "$(get voice)" --speed "$(get speed)" "$@"
+    ;;
+
   again)
     # The reply as it was spoken — the hook keeps a copy per project, so this
     # needs no transcript and no guesswork about which session you are in.
@@ -360,7 +372,8 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     echo "valid: install on off stop again status speed <n> voice <name> max <n>"
     echo "       mode <m> queue hold <on|off> guard <on|off|test>"
     echo "       sound <file|off|default> pending play [all|project]"
-    echo "       clear [all|project] read <file> voices audition test restart log"
+    echo "       clear [all|project] read <file> save <file|dir> voices audition"
+    echo "       test restart log"
     exit 2
     ;;
 esac

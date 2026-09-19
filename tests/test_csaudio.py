@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for scripts/csaudio.py — picking and feeding an audio player.
+"""Tests for scripts/csaudio.py — picking and feeding an audio player, and
+writing the same samples to a file instead.
 
     python3 -m unittest discover tests
 
@@ -10,7 +11,9 @@ pipe, and that route has to be testable without a Mac.
 """
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 import wave
 
@@ -127,6 +130,132 @@ class WavContainer(unittest.TestCase):
                 self.assertEqual(fh.read(4), b"RIFF")
         finally:
             os.unlink(path)
+
+
+class EncoderSelection(unittest.TestCase):
+    """`claude-speak save` — which encoder, and how it is fed."""
+
+    def setUp(self):
+        self.real_which = csaudio.shutil.which
+
+    def tearDown(self):
+        csaudio.shutil.which = self.real_which
+
+    def only(self, *tools):
+        csaudio.shutil.which = FakeWhich(*tools)
+
+    def test_ffmpeg_is_told_the_input_is_raw_mono(self):
+        # It has no header to read: get the rate or the channel count wrong
+        # and the file is chipmunks, not an error.
+        self.only("ffmpeg")
+        cmd = csaudio.encoder_cmd("talk.mp3", RATE)
+        self.assertEqual(cmd[0], "ffmpeg")
+        self.assertIn("s16le", cmd)
+        self.assertIn(str(RATE), cmd)
+        self.assertEqual(cmd[cmd.index("-ac") + 1], "1")
+        self.assertEqual(cmd[-1], "talk.mp3")
+
+    def test_mp3_names_its_codec(self):
+        self.only("ffmpeg")
+        self.assertIn("libmp3lame", csaudio.encoder_cmd("talk.mp3", RATE))
+
+    def test_other_containers_are_left_to_ffmpeg(self):
+        # -codec:a libmp3lame in an .m4a is an error; the extension already
+        # says what to write.
+        self.only("ffmpeg")
+        self.assertNotIn("libmp3lame", csaudio.encoder_cmd("talk.m4a", RATE))
+
+    def test_lame_only_gets_mp3(self):
+        self.only("lame")
+        self.assertEqual(csaudio.encoder_cmd("talk.mp3", RATE)[0], "lame")
+        self.assertIsNone(csaudio.encoder_cmd("talk.m4a", RATE))
+
+    def test_lame_is_told_the_byte_order(self):
+        # Raw input defaults to big-endian on some builds, which is static.
+        self.only("lame")
+        cmd = csaudio.encoder_cmd("talk.mp3", RATE)
+        self.assertIn("--little-endian", cmd)
+        self.assertIn("--signed", cmd)
+        self.assertEqual(cmd[cmd.index("-s") + 1], "24")   # kHz, not Hz
+
+    def test_bare_machine_has_no_encoder(self):
+        self.only()
+        self.assertIsNone(csaudio.encoder_cmd("talk.mp3", RATE))
+        self.assertFalse(csaudio.encoder_available())
+
+    def test_recorder_refuses_rather_than_writing_nothing(self):
+        self.only()
+        with self.assertRaises(RuntimeError):
+            csaudio.Recorder("talk.mp3", RATE)
+
+
+class RecordingToWav(unittest.TestCase):
+    """The wav route needs no encoder, so it is the one that can be tested
+    on any machine — and it is what `-o name.wav` gives a machine without
+    ffmpeg."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="cs-save-")
+        self.path = os.path.join(self.dir, "talk.wav")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_chunks_are_appended_in_order(self):
+        with csaudio.Recorder(self.path, RATE) as rec:
+            rec.write(b"\x01\x00" * 10)
+            rec.write(b"\x02\x00" * 10)
+        with wave.open(self.path) as w:
+            self.assertEqual(w.getnframes(), 20)
+            self.assertEqual(w.readframes(20), b"\x01\x00" * 10 + b"\x02\x00" * 10)
+
+    def test_seconds_counts_what_was_written(self):
+        rec = csaudio.Recorder(self.path, RATE)
+        rec.write(b"\x00\x00" * RATE)
+        self.assertAlmostEqual(rec.seconds, 1.0)
+        rec.close()
+
+    def test_abort_leaves_no_half_file(self):
+        # Ctrl-C during a long document must not leave something that looks
+        # like a finished recording.
+        rec = csaudio.Recorder(self.path, RATE)
+        rec.write(PCM)
+        rec.abort()
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_abort_is_safe_twice(self):
+        rec = csaudio.Recorder(self.path, RATE)
+        rec.abort()
+        rec.abort()
+
+
+class OutputNaming(unittest.TestCase):
+
+    def test_no_destination_writes_beside_you(self):
+        self.assertEqual(csaudio.audio_path("docs/plan.md"), "plan.mp3")
+
+    def test_a_directory_is_filled(self):
+        self.assertEqual(csaudio.audio_path("docs/plan.md", "audio"),
+                         os.path.join("audio", "plan.mp3"))
+        self.assertEqual(csaudio.audio_path("docs/plan.md", "audio/"),
+                         os.path.join("audio", "plan.mp3"))
+
+    def test_a_file_name_is_taken_literally(self):
+        # Including the extension: that is how wav is asked for.
+        self.assertEqual(csaudio.audio_path("docs/plan.md", "drive.wav"), "drive.wav")
+
+    def test_extension_follows_the_caller(self):
+        self.assertEqual(csaudio.audio_path("docs/plan.md", "audio", ".wav"),
+                         os.path.join("audio", "plan.wav"))
+
+    def test_two_readmes_do_not_become_one_file(self):
+        taken = {"README.mp3"}
+        self.assertEqual(csaudio.unique_path("README.mp3", taken), "README-2.mp3")
+        taken.add("README-2.mp3")
+        self.assertEqual(csaudio.unique_path("README.mp3", taken), "README-3.mp3")
+
+    def test_a_free_name_is_left_alone(self):
+        self.assertEqual(csaudio.unique_path("plan.mp3", set()), "plan.mp3")
 
 
 if __name__ == "__main__":

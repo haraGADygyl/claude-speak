@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Getting PCM out of a speaker, on whatever the machine happens to have.
+"""Getting PCM to a speaker, or to a file, on whatever the machine happens to have.
 
 Two shapes, because macOS has neither of the usual players:
 
@@ -8,6 +8,10 @@ Two shapes, because macOS has neither of the usual players:
   file      — afplay, which ships with macOS, only plays files. Each chunk
               becomes a short wav played to completion. Still chunk by
               chunk, just not down one long pipe
+
+Saving is the third shape: `Recorder` takes the same bytes and writes an mp3
+through ffmpeg or lame, or a wav when the caller asks for one by name. Nothing
+is played on that path — see scripts/csrender.py.
 
 Standard library only, and no numpy: callers hand over bytes.
 """
@@ -102,3 +106,174 @@ def play_blocking(pcm, rate):
             os.unlink(path)
         except OSError:
             pass
+
+
+# ---- saving to a file ----------------------------------------------------
+
+BITRATE = "64k"      # mono speech; 24 kHz Kokoro has nothing above this to keep
+
+NO_ENCODER = ("no mp3 encoder found — install ffmpeg or lame, or ask for a "
+              "wav with: -o name.wav")
+
+
+def encoder_cmd(path, rate, bitrate=BITRATE):
+    """A command that reads raw s16le mono on stdin and writes `path`, or None.
+
+    ffmpeg picks its codec from the extension, so an .m4a or .ogg asked for by
+    name works without another branch here; libmp3lame is named explicitly for
+    .mp3 because a build without it should fail loudly rather than silently
+    write something else. lame only does mp3.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if shutil.which("ffmpeg"):
+        cmd = ["ffmpeg", "-y", "-loglevel", "error",
+               "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "-"]
+        if ext == ".mp3":
+            cmd += ["-codec:a", "libmp3lame"]
+        return cmd + ["-b:a", bitrate, path]
+    if ext == ".mp3" and shutil.which("lame"):
+        # -s is in kHz, and lame defaults to big-endian for raw input on some
+        # builds, so both ends of the sample are spelled out.
+        return ["lame", "--quiet", "-r", "--signed", "--little-endian",
+                "-s", "%g" % (rate / 1000.0), "--bitwidth", "16", "-m", "m",
+                "-b", str(int(str(bitrate).rstrip("kK") or 64)), "-", path]
+    return None
+
+
+def encoder_available():
+    return shutil.which("ffmpeg") is not None or shutil.which("lame") is not None
+
+
+class Recorder:
+    """Somewhere to put PCM: an encoder on a pipe, or a wav file.
+
+    Chunks are written as they are synthesized rather than joined at the end —
+    a long document would otherwise sit in memory at 48 KB a second while it
+    rendered. `close()` returns the path; `abort()` throws the partial file
+    away, which is what an interrupted render wants.
+    """
+
+    def __init__(self, path, rate, bitrate=BITRATE):
+        self.path = path
+        self.rate = rate
+        self.frames = 0
+        self.wav = None
+        self.proc = None
+        self.errlog = None
+        if os.path.splitext(path)[1].lower() == ".wav":
+            self.wav = wave.open(path, "wb")
+            self.wav.setnchannels(1)
+            self.wav.setsampwidth(2)
+            self.wav.setframerate(rate)
+            return
+        cmd = encoder_cmd(path, rate, bitrate)
+        if cmd is None:
+            raise RuntimeError(NO_ENCODER)
+        # A real error goes to a temp file rather than a pipe: at these log
+        # levels an encoder says nothing until it fails, and a pipe nobody
+        # reads is a deadlock waiting for a verbose build.
+        self.errlog = tempfile.TemporaryFile()
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                     stdout=subprocess.DEVNULL, stderr=self.errlog)
+
+    @property
+    def seconds(self):
+        return self.frames / float(self.rate or 1)
+
+    def write(self, pcm):
+        self.frames += len(pcm) // 2
+        if self.wav is not None:
+            self.wav.writeframes(pcm)
+            return
+        self.proc.stdin.write(pcm)
+
+    def close(self):
+        if self.wav is not None:
+            self.wav.close()
+            self.wav = None
+            return self.path
+        if self.proc is None:
+            return self.path
+        proc, self.proc = self.proc, None
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        rc = proc.wait()
+        err = ""
+        if self.errlog is not None:
+            self.errlog.seek(0)
+            err = self.errlog.read().decode("utf-8", "replace").strip()
+            self.errlog.close()
+            self.errlog = None
+        if rc != 0:
+            raise RuntimeError(err.splitlines()[-1] if err
+                               else "encoder exited with status %d" % rc)
+        return self.path
+
+    def abort(self):
+        """Give up on this file and remove it. Safe to call twice."""
+        if self.wav is not None:
+            try:
+                self.wav.close()
+            except Exception:
+                pass
+            self.wav = None
+        if self.proc is not None:
+            proc, self.proc = self.proc, None
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        if self.errlog is not None:
+            self.errlog.close()
+            self.errlog = None
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.close()
+        else:
+            self.abort()
+        return False
+
+
+def audio_path(src, dest=None, ext=".mp3"):
+    """Where one source file's audio goes.
+
+    No destination means the current directory; a destination that is, or ends
+    like, a directory means inside it; anything else is taken as the exact file
+    to write, extension included — that is how `-o notes.wav` picks wav.
+    """
+    stem = os.path.splitext(os.path.basename(src.rstrip("/") or "audio"))[0] or "audio"
+    if not dest:
+        return stem + ext
+    if os.path.isdir(dest) or dest.endswith("/") or os.path.splitext(dest)[1] == "":
+        return os.path.join(dest, stem + ext)
+    return dest
+
+
+def unique_path(path, taken):
+    """`notes.mp3`, then `notes-2.mp3` — two READMEs in one run, one directory.
+
+    Only names claimed earlier in the same run are dodged. A file already on
+    disk is overwritten, because asking to save again is asking for a new copy.
+    """
+    if path not in taken:
+        return path
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while "%s-%d%s" % (stem, n, ext) in taken:
+        n += 1
+    return "%s-%d%s" % (stem, n, ext)
