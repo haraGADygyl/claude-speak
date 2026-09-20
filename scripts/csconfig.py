@@ -30,7 +30,7 @@ import cspaths  # noqa: E402
 from cstext import DEFAULTS  # noqa: E402
 
 SUMMARY_KEYS = ("enabled", "engine", "voice", "speed", "maxChars",
-                "multiSession", "holdReplies", "holdSound", "meetingGuard",
+                "multiSession", "sameSession", "holdReplies", "holdSound", "meetingGuard",
                 "notify")
 
 # Settings from a hand-rolled install that predates the plugin.

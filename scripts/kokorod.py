@@ -3,16 +3,20 @@
 
 Listens on a unix socket for newline-delimited JSON commands:
     {"cmd": "say", "text": "...", "voice": "af_heart", "speed": 1.0,
-     "session": "<id>", "label": "myproject", "mode": "queue"}
+     "session": "<id>", "label": "myproject", "mode": "queue",
+     "same": "queue"}
     {"cmd": "stop"}     cancel everything, drop the queue
     {"cmd": "status"}
 
-Multi-session behaviour, with several Claude Code terminals sharing one daemon:
+Two axes decide what happens when a reply lands mid-speech:
 
-  * A new reply from the SAME session interrupts it — you told Claude to start
-    over, so the old reply is stale.
-  * A reply from a DIFFERENT session queues behind whatever is speaking and is
-    announced by project name. Nothing overlaps, nothing is silently lost.
+  * "mode" governs a reply from a DIFFERENT session: queue behind what is
+    speaking (announced by project name), interrupt it, or be dropped.
+  * "same" governs a second reply from the SAME session — a burst of subagents
+    reporting back, or an answer you asked for again. "queue" reads them in
+    order; "interrupt" treats the older one as stale and cuts it off.
+
+Nothing overlaps either way.
 """
 
 import collections
@@ -32,14 +36,19 @@ import csaudio  # noqa: E402
 # stdlib only, and testable without the venv this daemon runs under.
 from cstext import split_chunks, synth_chunks  # noqa: E402
 
-MAX_QUEUE = 3       # waiting replies; oldest is dropped beyond this
+# Waiting replies; the oldest is dropped beyond this. Eight because a reply
+# runs about a minute aloud, so that is the point where the voice is far enough
+# behind to be talking about work you have moved on from — it is a staleness
+# bound, not a resource one. A run of subagents reporting back fits inside it.
+MAX_QUEUE = 8
 
 
 class Job(object):
-    __slots__ = ("session", "label", "text", "voice", "speed")
+    __slots__ = ("session", "label", "text", "voice", "speed", "same")
 
     def __init__(self, msg):
         self.session = msg.get("session") or "default"
+        self.same = msg.get("same") or "interrupt"
         self.label = (msg.get("label") or "").strip()
         self.text = msg["text"]
         self.voice = msg.get("voice") or "af_heart"
@@ -66,18 +75,19 @@ class Speaker:
                 self.seen_labels.add(job.label)
             same_session = self.current is not None and self.current.session == job.session
 
-            if mode == "interrupt":
+            # What a terminal's own reply does to the one it is still speaking
+            # is "same"'s call alone: "mode" is about the other terminals, and
+            # letting it interrupt here would talk over a run of subagents.
+            if same_session:
+                if job.same == "interrupt":
+                    self._supersede_locked(job)
+            elif mode == "interrupt":
                 self.queue.clear()
                 self._cancel_locked()
-            elif mode == "drop" and not same_session and (
-                    self.current is not None or self.queue):
+            elif mode == "drop" and (self.current is not None or self.queue):
                 return "dropped"
-            else:                                     # queue
-                # A newer reply from a session supersedes its own waiting ones.
-                self.queue = collections.deque(
-                    j for j in self.queue if j.session != job.session)
-                if same_session:
-                    self._cancel_locked()
+            elif job.same == "interrupt":
+                self._supersede_locked(job)
 
             self.queue.append(job)
             while len(self.queue) > MAX_QUEUE:
@@ -95,6 +105,13 @@ class Speaker:
             return {"speaking": self.current.label if self.current else None,
                     "queued": [j.label for j in self.queue],
                     "sessions_seen": sorted(self.seen_labels)}
+
+    def _supersede_locked(self, job):
+        """This session's newer reply replaces its own older ones."""
+        self.queue = collections.deque(
+            j for j in self.queue if j.session != job.session)
+        if self.current is not None and self.current.session == job.session:
+            self._cancel_locked()
 
     def _cancel_locked(self):
         self.cancel = True

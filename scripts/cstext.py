@@ -32,6 +32,12 @@ DEFAULTS = {
     #   interrupt — the newest reply always cuts off whatever is speaking
     #   drop      — ignore replies arriving while another session speaks
     "multiSession": "queue",
+    # What one terminal's own replies do to each other when a second lands
+    # while the first is still being read — subagents reporting back, or a
+    # reply you interrupted and asked again:
+    #   queue     — finish the first, then read the second
+    #   interrupt — the newer reply is the one you want; cut the old one off
+    "sameSession": "queue",
     # Replies are held by default: stashed with a notification rather than
     # spoken. Nothing ever starts talking unless you asked it to. Turn this off
     # (`claude-speak hold off`) to have replies read out as they finish.

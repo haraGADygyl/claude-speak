@@ -15,6 +15,8 @@
 #   claude-speak speed 1.2       0.5 = slow, 1.0 = normal, 1.5 = fast
 #   claude-speak max 4000        max characters read per reply
 #   claude-speak mode queue      several terminals: queue | interrupt | drop
+#   claude-speak same queue      this terminal's own run of replies:
+#                                queue | interrupt
 #   claude-speak queue           what is speaking and what is waiting
 #   claude-speak restart         restart the TTS daemon
 #   claude-speak log             tail the daemon log
@@ -174,6 +176,16 @@ case "${1:-status}" in
       queue)     echo "mode: queue — other terminals wait their turn, announced by project" ;;
       interrupt) echo "mode: interrupt — the newest reply cuts off whatever is speaking" ;;
       drop)      echo "mode: drop — replies arriving mid-speech are skipped" ;;
+    esac
+    ;;
+
+  same)
+    m="${2:?usage: claude-speak same queue|interrupt}"
+    case "$m" in queue|interrupt) ;; *) echo "same must be queue or interrupt"; exit 2 ;; esac
+    set_key sameSession "\"$m\""
+    case "$m" in
+      queue)     echo "same: queue — a run of replies from this terminal is read in order" ;;
+      interrupt) echo "same: interrupt — a new reply from this terminal cuts off its own last one" ;;
     esac
     ;;
 
@@ -370,7 +382,7 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
   *)
     echo "unknown option: $1"
     echo "valid: install on off stop again status speed <n> voice <name> max <n>"
-    echo "       mode <m> queue hold <on|off> guard <on|off|test>"
+    echo "       mode <m> same <m> queue hold <on|off> guard <on|off|test>"
     echo "       sound <file|off|default> pending play [all|project]"
     echo "       clear [all|project] read <file> save <file|dir> voices audition"
     echo "       test restart log"

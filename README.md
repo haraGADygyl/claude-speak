@@ -122,7 +122,9 @@ whole run. MP3 needs `ffmpeg` or `lame`; wav needs neither.
 **It knows which terminal is talking.** With several Claude Code sessions open,
 a reply from another project waits its turn and introduces itself — *"From api
 server. The migration finished…"* — instead of cutting off whatever is speaking.
-A new reply from the *same* session does interrupt it, because that one is stale.
+Replies from the *same* terminal queue too, so a run of subagents reporting
+back is read one after another rather than each one cutting off the last —
+`claude-speak same interrupt` goes back to only ever hearing the newest.
 
 **It waits until you're back.** This is the default. Replies are stashed and
 announced rather than spoken, so nothing surprises you:
@@ -164,6 +166,7 @@ Every command works from a shell as `claude-speak …` or inside Claude Code as
 | `read <file>` | Read any file aloud — `-` for stdin |
 | `save <file\|dir>` | Write it to MP3 instead — `-o DIR` or `-o NAME.mp3` |
 | `mode queue` | Multi-terminal behaviour: `queue`, `interrupt`, `drop` |
+| `same queue` | One terminal's own run of replies: `queue`, `interrupt` |
 | `queue` | What's speaking and what's waiting |
 | `status` | Current settings |
 | `restart` / `log` | Daemon control |

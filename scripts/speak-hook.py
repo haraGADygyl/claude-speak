@@ -233,7 +233,8 @@ def speak(text, cfg):
     if engine == "kokoro":
         if cspaths.kokoro_ready():
             # The daemon streams chunk by chunk. Session identity lets it
-            # interrupt only this session and queue other terminals behind us.
+            # keep this terminal's replies in order and queue other terminals
+            # behind us.
             subprocess.Popen(
                 [sys.executable, os.path.join(cspaths.SCRIPTS, "say.py"),
                  "--voice", str(cfg["voice"]),
@@ -241,17 +242,25 @@ def speak(text, cfg):
                  "--session", cfg["_session"],
                  "--label", cfg["_label"],
                  "--mode", str(cfg["multiSession"]),
+                 "--same", str(cfg["sameSession"]),
                  text],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
             return
         engine = "say" if platform.system() == "Darwin" else "spd-say"
 
+    # Only the daemon has a queue. say and espeak start a second voice on top
+    # of the first, so the previous reply is killed whatever sameSession says —
+    # overlapping speech is worse than a cut-off one. speech-dispatcher does
+    # queue, so there -C is simply not sent.
+    queue_it = cfg["sameSession"] == "queue"
+
     if engine == "say":                                  # macOS built-in
         subprocess.run(["pkill", "-x", "say"], check=False)
         args = ["say", "-r", str(int(180 * float(cfg["speed"]))), text]
     elif engine == "spd-say":
-        subprocess.run(["spd-say", "-C"], check=False)    # stop previous reply
+        if not queue_it:
+            subprocess.run(["spd-say", "-C"], check=False)   # drop the old one
         args = ["spd-say", "-r", str(cfg["fallbackRate"]),
                 "-t", str(cfg["fallbackVoice"]), "-m", "some", text]
     else:                                                # espeak-ng / espeak

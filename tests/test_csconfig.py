@@ -115,7 +115,7 @@ class Config(Base):
         got = json.loads(self.run_cli("config", "summary").stdout)
         self.assertEqual(list(got), list(("enabled", "engine", "voice", "speed",
                                           "maxChars", "multiSession",
-                                          "holdReplies", "holdSound",
+                                          "sameSession", "holdReplies", "holdSound",
                                           "meetingGuard", "notify")))
 
 

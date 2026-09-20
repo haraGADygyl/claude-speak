@@ -99,6 +99,7 @@ def main():
 
     voice = os.environ.get("CLAUDE_SPEAK_VOICE", "af_heart")
     speed, session, label, mode = 1.0, "cli", "", "queue"
+    same = "interrupt"      # a second `read` or `play` replaces the first
     while args and args[0].startswith("--"):
         flag = args.pop(0)
         if flag == "--voice":
@@ -111,6 +112,8 @@ def main():
             label = args.pop(0)
         elif flag == "--mode":
             mode = args.pop(0)
+        elif flag == "--same":
+            same = args.pop(0)
 
     # Anything left is the text; with none, take it from a pipe or redirect.
     # A bare `say.py` on a terminal has nothing to say, so it stops there rather
@@ -125,7 +128,8 @@ def main():
     if not text.strip():
         sys.exit(0)
     ok = send({"cmd": "say", "text": text, "voice": voice, "speed": speed,
-               "session": session, "label": label, "mode": mode})
+               "session": session, "label": label, "mode": mode,
+               "same": same})
     sys.exit(0 if ok else 1)
 
 
