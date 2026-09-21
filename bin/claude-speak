@@ -145,6 +145,46 @@ status() {
   printf 'daemon:  %s\n' "$daemon"
 }
 
+# Every command is a branch of the case below, so the valid ones are read back
+# out of it instead of being listed by hand a second time. A hand-kept list is
+# a list that goes stale: "save" shipped without being in it.
+commands() {
+  awk '
+    /^case "\$\{1:-status\}" in$/ { inside = 1; next }
+    inside && /^esac/ { exit }
+    inside && /^  [a-z|"*-]+\)/ {
+      sub(/\).*/, ""); sub(/^  /, "")
+      n = split($0, branch, "|")
+      for (i = 1; i <= n; i++)
+        if (branch[i] !~ /^("")|[*]$/ && branch[i] !~ /^-/) print branch[i]
+    }
+  ' "$SELF" | sort -u
+}
+
+# Usage errors print on stdout, not stderr. /claude-speak:speak reports back
+# whatever the binary printed, and a message sent only to stderr reaches the
+# user as an empty reply — the one thing worse than an ugly error.
+usage() { echo "usage: claude-speak $1"; exit 2; }
+
+unknown() {
+  local hint
+  echo "claude-speak: no such command \"$1\""
+  hint=$("${CS[@]}" suggest "$1" $(commands) 2>/dev/null)
+  [[ -n "$hint" ]] && echo "did you mean: claude-speak $hint"
+  echo
+  echo "commands:"
+  # Commas to separate them and fold -s to break between them: one long line
+  # of names wraps wherever the terminal runs out, which splits a word down
+  # the middle and reads as noise. 72 rather than the real width because the
+  # width is not knowable when stdout is a pipe, and 72 fits every terminal
+  # worth supporting.
+  commands | paste -sd, - | sed 's/,/, /g' | fold -s -w 72 \
+    | sed 's/[[:space:]]*$//; s/^/  /'
+  echo
+  echo "what each does: claude-speak --help"
+  exit 2
+}
+
 ensure_cfg
 heal
 
@@ -157,19 +197,22 @@ case "${1:-status}" in
         echo "silenced" ;;
 
   voice)
-    v="${2:?usage: claude-speak voice af_bella}"
+    v="${2:-}"; [[ -n "$v" ]] || usage "voice af_bella"
     set_key voice "\"$v\""
     "${SAY[@]}" --voice "$v" --speed "$(get speed)" \
       "This is ${v//_/ }. I will read your replies in this voice from now on."
     ;;
   speed)
-    set_key speed "${2:?usage: claude-speak speed 1.2}"; echo "speed: $2"
+    [[ -n "${2:-}" ]] || usage "speed 1.2"
+    set_key speed "$2"; echo "speed: $2"
     "${SAY[@]}" --voice "$(get voice)" --speed "$2" "This is the new speaking speed."
     ;;
-  max) set_key maxChars "${2:?usage: claude-speak max 4000}"; echo "maxChars: $2" ;;
+  max)
+    [[ -n "${2:-}" ]] || usage "max 4000"
+    set_key maxChars "$2"; echo "maxChars: $2" ;;
 
   mode)
-    m="${2:?usage: claude-speak mode queue|interrupt|drop}"
+    m="${2:-}"; [[ -n "$m" ]] || usage "mode queue|interrupt|drop"
     case "$m" in queue|interrupt|drop) ;; *) echo "mode must be queue, interrupt or drop"; exit 2 ;; esac
     set_key multiSession "\"$m\""
     case "$m" in
@@ -180,7 +223,7 @@ case "${1:-status}" in
     ;;
 
   same)
-    m="${2:?usage: claude-speak same queue|interrupt}"
+    m="${2:-}"; [[ -n "$m" ]] || usage "same queue|interrupt"
     case "$m" in queue|interrupt) ;; *) echo "same must be queue or interrupt"; exit 2 ;; esac
     set_key sameSession "\"$m\""
     case "$m" in
@@ -216,7 +259,7 @@ case "${1:-status}" in
           echo "meeting guard: on — idle, nothing is recording"
         fi
         ;;
-      *) echo "usage: claude-speak guard [on|off|test]"; exit 2 ;;
+      *) usage "guard [on|off|test]" ;;
     esac
     ;;
 
@@ -301,7 +344,7 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     ;;
 
   read)
-    f="${2:?usage: claude-speak read <file>   (- reads stdin)}"
+    f="${2:-}"; [[ -n "$f" ]] || usage "read <file>   (- reads stdin)"
     # Claude Code's @-completion inserts the path with an @ on the front, so
     # "/claude-speak:speak read @docs/x.md" arrives here literally. Strip it only when that
     # is what makes the path resolve, in case a file really is named @foo.
@@ -335,7 +378,7 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
     kokoro_ready || { echo "run 'claude-speak install' first"; exit 1; }
     shift
     [[ $# -gt 0 ]] || {
-      echo "usage: claude-speak save FILE|DIR... [-o DIR|FILE.mp3]"; exit 2; }
+      usage "save FILE|DIR... [-o DIR|FILE.mp3]"; }
     # Nothing is played and the daemon is not involved: this loads its own copy
     # of the model, renders every file, and exits. Minutes, not milliseconds.
     "$VENV_PY" "$SCRIPTS/csrender.py" \
@@ -379,13 +422,5 @@ print('\n'.join(sorted(Kokoro(cspaths.MODEL, cspaths.VOICES).get_voices())))" 2>
   # The header comment is the help text; stop at the first line that isn't one,
   # so adding a command never means fixing a line number here.
   -h|--help|help) awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$SELF" ;;
-  *)
-    echo "unknown option: $1"
-    echo "valid: install on off stop again status speed <n> voice <name> max <n>"
-    echo "       mode <m> same <m> queue hold <on|off> guard <on|off|test>"
-    echo "       sound <file|off|default> pending play [all|project]"
-    echo "       clear [all|project] read <file> save <file|dir> voices audition"
-    echo "       test restart log"
-    exit 2
-    ;;
+  *) unknown "$1" ;;
 esac

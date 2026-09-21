@@ -34,9 +34,9 @@ Rules:
   report that result instead.
 - If the output says to run `claude-speak install`, say so in one line — the neural
   voice model has not been downloaded yet.
-- If the argument was not recognised, say so in one line and list the valid ones inline:
-  `on, off, stop, again, status, speed <n>, voice <name>, max <n>, mode <queue|interrupt|drop>, same <queue|interrupt>, guard <on|off|test>, sound <file|off|default>,
-  queue, hold <on|off>, pending, play [all|project], clear [all|project], read <file>, save <file|dir>, voices, test, audition, install, restart, log`.
+- If the argument was not recognised the output already says so, names the
+  nearest command and lists the rest. Pass it on as it is, in one line — do not
+  add a list of your own, which is how the two drift apart.
 
 Reference — settings live in `~/.config/claude-speak/config.json`, the model and
 held replies in `~/.local/share/claude-speak/`, and the daemon is the systemd user

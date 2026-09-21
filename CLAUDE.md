@@ -86,7 +86,13 @@ It used to be three files — the Python dict plus a `DEFAULT_CFG` heredoc in `b
 
 ## The shell shells out for JSON
 
-`bin/claude-speak` uses no `jq`. Every read, write and held-reply query goes through `scripts/csconfig.py` (`config get|set|ensure|summary`, `held count|labels|pending|text|drop`). python3 is a hard dependency of the plugin already, so this removed a system package rather than adding one. `NoDuplicateDefaults.test_the_shell_does_not_need_jq` keeps it that way.
+`bin/claude-speak` uses no `jq`. Every read, write and held-reply query goes through `scripts/csconfig.py` (`config get|set|ensure|summary`, `held count|labels|pending|text|drop`, `suggest <typo> <cmd>…`). python3 is a hard dependency of the plugin already, so this removed a system package rather than adding one. `NoDuplicateDefaults.test_the_shell_does_not_need_jq` keeps it that way.
+
+## Getting the command wrong
+
+Bad input is a first-class output. A missing argument used to land on bash's own `${2:?...}`, which prints the script path and a line number before the usage and exits 1 rather than 2; `usage()` replaces it everywhere. An unrecognised command gets `csconfig.py suggest`, which is `difflib.get_close_matches` — near enough to turn `spedd` into `speed`, quiet when nothing is close, because a confident wrong guess reads worse than no guess.
+
+Both print on **stdout, not stderr**. `/claude-speak:speak` reports whatever the binary printed, and a message that went only to stderr reaches the user as an empty reply.
 
 ## Behaviour that looks like a bug but is deliberate
 
@@ -110,8 +116,8 @@ Any change here needs a case in `tests/test_cstext.py`, including the ones that 
 
 Adding a user-visible command touches four places:
 
-1. `bin/claude-speak` — the `case` branch, the header comment (which *is* the `--help` output, printed by awk up to the first non-comment line), and the unknown-option list
-2. `skills/speak/SKILL.md` — `argument-hint` and the valid-arguments line. This is the `/claude-speak:speak` slash command — Claude Code namespaces every plugin command as `<plugin>:<skill>`, and that full name is the only one that exists; it has `disable-model-invocation: true` and runs the binary via `!` frontmatter, so Claude's whole job is to report the result in one line
+1. `bin/claude-speak` — the `case` branch and the header comment (which *is* the `--help` output, printed by awk up to the first non-comment line). Nothing else: the list of valid commands offered after a typo is read back out of the `case` statement by `commands()`, because the hand-kept copy that used to live in the `*)` branch went stale — `save` shipped absent from it. `NoHandKeptList` in `tests/test_cli_errors.py` holds the two in agreement, and fails if a branch is added with no help line
+2. `skills/speak/SKILL.md` — `argument-hint`. This is the `/claude-speak:speak` slash command — Claude Code namespaces every plugin command as `<plugin>:<skill>`, and that full name is the only one that exists; it has `disable-model-invocation: true` and runs the binary via `!` frontmatter, so Claude's whole job is to report the result in one line
 3. `README.md` — the Controls table
 4. `.claude-plugin/plugin.json` — **bump `version` in the same commit.** Every release so far has done this: minor for a feature, patch for a fix
 

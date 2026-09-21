@@ -19,8 +19,11 @@ defaults are written down.
 
     csconfig.py last get <label>       the last reply spoken there, for `again`
     csconfig.py last drop <label>      forget it
+
+    csconfig.py suggest <typo> <cmd>…  the closest command name, or nothing
 """
 
+import difflib
 import json
 import os
 import sys
@@ -203,6 +206,21 @@ def cmd_last(argv):
     return 2
 
 
+def cmd_suggest(argv):
+    """The command someone probably meant, for the CLI's unknown-command line.
+
+    difflib rather than an edit distance hand-rolled in awk — the shell
+    already comes here for everything it cannot do itself. Nothing is printed
+    when nothing is close: a confident wrong guess reads worse than no guess.
+    """
+    if len(argv) < 2:
+        return 2
+    hit = difflib.get_close_matches(argv[0], argv[1:], n=1, cutoff=0.6)
+    if hit:
+        print(hit[0])
+    return 0
+
+
 def main(argv):
     if not argv:
         print(__doc__.strip(), file=sys.stderr)
@@ -227,6 +245,8 @@ def main(argv):
         return cmd_held(rest)
     if group == "last":
         return cmd_last(rest)
+    if group == "suggest":
+        return cmd_suggest(rest)
     print("unknown group: %s" % group, file=sys.stderr)
     return 2
 
